@@ -7,6 +7,24 @@ class Strings {
   }
 
   static const Map<String, List<String>> _text = {
+    'migrate_banks': ['Chuyển module ngân hàng', 'Move banking modules'],
+    'migrating_banks': [
+      'Đang chuyển module ngân hàng…',
+      'Moving banking modules…',
+    ],
+    'bank_layout_current': [
+      'Không có module ngân hàng cần chuyển.',
+      'No banking modules need moving.',
+    ],
+    'migrate_banks_note': [
+      'Chuyển các module ngân hàng từ /system_ext/priv-app sang /system/app. Dữ liệu ứng dụng và trạng thái bật/tắt module được giữ nguyên. Cần khởi động lại để áp dụng.',
+      'Move banking modules from /system_ext/priv-app to /system/app. App data and module enabled/disabled state are preserved. Restart to apply.',
+    ],
+    'disabled': ['Đã vô hiệu hoá', 'Disabled apps'],
+    'uninstalled': ['Đã gỡ cài đặt', 'Uninstalled apps'],
+    'by_disabled': ['Ứng dụng đã vô hiệu hoá', 'Disabled apps'],
+    'by_uninstalled': ['Ứng dụng đã gỡ cài đặt', 'Uninstalled apps'],
+    'module_present': ['Module vẫn tồn tại', 'Module still present'],
     'disable': ['Vô hiệu hoá', 'Disable'],
     'uninstall': ['Gỡ ứng dụng', 'Uninstall'],
     'disabling_work': ['Đang vô hiệu hoá ứng dụng…', 'Disabling apps…'],
@@ -51,14 +69,11 @@ class Strings {
     'apps': ['Ứng dụng', 'Apps'],
     'settings': ['Cài đặt', 'Settings'],
     'reboot': ['Khởi động lại', 'Restart'],
-    'subtitle': ['Không gian mới cho ứng dụng.', 'A new home for your apps.'],
-    'hero': [
-      'Ứng dụng của bạn.\nMột phần hệ thống.',
-      'Your apps.\nPart of the system.',
-    ],
+    'subtitle': ['For your best experience😊', 'For your best experience😊'],
+    'hero': ['Cá nhân hóa trải nghiệm của bạn', 'Personalize your experience'],
     'hero_desc': [
-      'Chọn ứng dụng yêu thích và đưa vào system_ext với module Magisk hoặc KernelSU.',
-      'Give your favourite apps a home in system_ext with a Magisk or KernelSU module.',
+      'Chọn ứng dụng để systemize, có thể tối ưu thông báo và khắc phục các hạn chế của ứng dụng ở ROM Trung Quốc.',
+      'Choose apps to systemize. This may improve notifications and help address app restrictions on Chinese ROMs.',
     ],
     'choose_apps': ['Chọn ứng dụng', 'Choose apps'],
     'root_ready': ['Đã cấp quyền root', 'Root access granted'],
@@ -80,18 +95,15 @@ class Strings {
     'pending': ['Chờ khởi động lại', 'Restart pending'],
     'overview': ['TỔNG QUAN', 'OVERVIEW'],
     'mount_engine': ['CƠ CHẾ MOUNT', 'MOUNT ENGINE'],
-    'hybrid_desc': [
-      'Overlay cho system_ext · KernelSU',
-      'Overlay for system_ext · KernelSU',
-    ],
+    'hybrid_desc': ['Overlay hệ thống · KernelSU', 'System overlay · KernelSU'],
     'magic_desc': ['Module systemless · Magisk', 'Systemless modules · Magisk'],
-    'mount_ready': ['Sẵn sàng', 'Ready'],
+    'mount_ready': ['Đang hoạt động', 'Active'],
     'mount_needed': ['Cần thiết lập', 'Setup needed'],
     'hybrid_required': [
       'Cài và bật Hybrid Mount, chọn OverlayFS hoặc Magic Mount trong cấu hình, rồi khởi động lại thiết bị.',
       'Install and enable Hybrid Mount, select OverlayFS or Magic Mount in its configuration, then restart the device.',
     ],
-    'hybrid_link': ['Mở Hybrid Mount ↗', 'Open Hybrid Mount ↗'],
+    'hybrid_link': ['Tải Hybrid Mount ↗', 'Download Hybrid Mount ↗'],
     'hybrid_magisk': [
       'Hybrid Mount upstream hỗ trợ KernelSU/APatch. Magisk dùng Magic Mount có sẵn.',
       'Upstream Hybrid Mount supports KernelSU/APatch. Magisk uses its built-in Magic Mount.',
@@ -104,8 +116,8 @@ class Strings {
     ],
     'step_2': ['02  Tạo module', '02  Create modules'],
     'step_2_desc': [
-      'Sao chép APK, split APK và thư viện native vào module system_ext/priv-app.',
-      'Copy APKs, split APKs and native libraries into a system_ext/priv-app module.',
+      'Sao chép APK, split APK và thư viện native: ngân hàng vào system/app, các app khác vào system_ext/priv-app.',
+      'Copy APKs, split APKs and native libraries: banks to system/app, other apps to system_ext/priv-app.',
     ],
     'step_3': ['03  Khởi động lại', '03  Restart'],
     'step_3_desc': [
@@ -176,7 +188,7 @@ class Strings {
     ],
     'active': ['Đã systemize', 'Systemized'],
     'stock_system': ['App hệ thống', 'System app'],
-    'disabled': ['Module bị tắt', 'Module disabled'],
+    'module_disabled': ['Module bị tắt', 'Module disabled'],
     'removing': ['Đang chờ gỡ', 'Removal pending'],
     'mount_failed': ['Chưa được mount', 'Not mounted'],
     'not_enabled': ['Ứng dụng bị tắt', 'App disabled'],
@@ -196,10 +208,7 @@ class Strings {
     'manager': ['Trình quản lý root', 'Root manager'],
     'partition': ['Đích mount', 'Mount target'],
     'about': ['Về SysLeaf', 'About SysLeaf'],
-    'about_desc': [
-      'Flutter + Rust · Material 3\nPhiên bản 0.1.0',
-      'Flutter + Rust · Material 3\nVersion 0.1.0',
-    ],
+    'about_desc': ['Phiên bản 1.1', 'Version 1.1'],
     'privacy': [
       'Danh sách ứng dụng được xử lý trên thiết bị. SysLeaf không gửi dữ liệu lên máy chủ.',
       'The app list is processed on your device. SysLeaf does not send data to a server.',
@@ -213,8 +222,8 @@ class Strings {
       'No su access. Grant permission in your root manager and try again.',
     ],
     'err_PARTITION_MISSING': [
-      'Thiết bị không có /system_ext/priv-app. SysLeaf cần phân vùng này để hoạt động.',
-      'This device has no /system_ext/priv-app. SysLeaf requires this partition.',
+      'Thiết bị không có /system_ext/priv-app; chỉ có thể systemize app ngân hàng vào /system/app.',
+      'This device has no /system_ext/priv-app; only banking apps can be systemized into /system/app.',
     ],
     'err_MANAGER_UNSUPPORTED': [
       'Cần Magisk hoặc KernelSU để quản lý module.',

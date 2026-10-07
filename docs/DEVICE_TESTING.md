@@ -21,6 +21,11 @@ KernelSU app profile phải cho phép root của SysLeaf và không chặn truy 
 
 ## Những trường hợp cần đối chiếu
 
+- App ngân hàng được nhận diện (ví dụ TPBank/MB): review ghi `/system/app`, module chứa `system/app/<package>` và không có APK của package đó trong `system/system_ext/priv-app`. Sau reboot, đối chiếu APK mới tại `/system/app` và FLAG_SYSTEM. App khác vẫn dùng `/system_ext/priv-app`.
+- Module ngân hàng từ bản cũ: mở mục **Chuyển module ngân hàng**, huỷ không đổi module; xác nhận giữ split/native/data và marker tắt module, hiển thị chờ reboot. Sau reboot và mount thành công, script chỉ dọn bản sao của chính module; module tắt/chưa mount vẫn còn bản sao. Không thử lại trước khi đối chiếu nếu thiết bị mất nguồn giữa giao dịch.
+- Kiểm tra chip hành động dưới tìm kiếm, không có dấu tích trên icon. Sort riêng các app đã gỡ/đã tắt/đã systemize; app đã gỡ không có checkbox, cài lại cập nhật trạng thái. Lịch sử không thể khôi phục app người dùng bị Android quên trước lần SysLeaf quan sát.
+- Hybrid đang hoạt động: pill **Đang hoạt động**, không có link mở. Thiếu/chưa sẵn sàng: có **Tải Hybrid Mount**. About hiển thị **Phiên bản 1.1**, không có link Hybrid hoặc dòng tên framework.
+
 - App có base + nhiều split APK và app dùng native libraries.
 - Chọn nhiều app; cập nhật hoặc uninstall một app trong lúc tạo module: thao tác phải thất bại hoặc phát hiện thay đổi và không báo thành công giả.
 - `/data` thiếu dung lượng; lệnh copy/SELinux thất bại: module chưa hoàn tất không được mount ở boot sau.

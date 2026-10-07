@@ -196,17 +196,7 @@ printf 'sdk=%s\ndevice=%s\nboot_id=%s\n' "$(getprop ro.build.version.sdk)" "$(ge
         }
     }
     let partition_exists = get("partition") == "true";
-    let reason = if !partition_exists {
-        "PARTITION_MISSING"
-    } else if manager == "unsupported" {
-        "MANAGER_UNSUPPORTED"
-    } else if manager == "KernelSU" && !hybrid_ready {
-        "HYBRID_REQUIRED"
-    } else if module_ignored {
-        "HYBRID_RULE_BLOCKED"
-    } else {
-        ""
-    };
+    let reason = prerequisites(&manager, hybrid_ready, module_ignored, partition_exists);
     Ok(Environment {
         root: true,
         manager,
@@ -223,6 +213,28 @@ printf 'sdk=%s\ndevice=%s\nboot_id=%s\n' "$(getprop ro.build.version.sdk)" "$(ge
     })
 }
 
+fn prerequisites(
+    manager: &str,
+    hybrid_ready: bool,
+    ignored: bool,
+    partition: bool,
+) -> &'static str {
+    // Banking apps can use /system/app without system_ext/priv-app, but must
+    // still meet all mount-engine prerequisites. Never mask those as a missing
+    // partition, which is the only condition a banking-only batch can bypass.
+    if manager == "unsupported" {
+        "MANAGER_UNSUPPORTED"
+    } else if manager == "KernelSU" && !hybrid_ready {
+        "HYBRID_REQUIRED"
+    } else if ignored {
+        "HYBRID_RULE_BLOCKED"
+    } else if !partition {
+        "PARTITION_MISSING"
+    } else {
+        ""
+    }
+}
+
 pub fn reboot() -> Result<()> {
     require_root()?;
     run(
@@ -234,6 +246,30 @@ pub fn reboot() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn banking_partition_exception_never_masks_mount_prerequisites() {
+        assert_eq!(
+            super::prerequisites("unsupported", false, false, false),
+            "MANAGER_UNSUPPORTED"
+        );
+        assert_eq!(
+            super::prerequisites("KernelSU", false, false, false),
+            "HYBRID_REQUIRED"
+        );
+        assert_eq!(
+            super::prerequisites("KernelSU", true, true, false),
+            "HYBRID_RULE_BLOCKED"
+        );
+        assert_eq!(
+            super::prerequisites("KernelSU", true, false, false),
+            "PARTITION_MISSING"
+        );
+        assert_eq!(
+            super::prerequisites("Magisk", false, false, false),
+            "PARTITION_MISSING"
+        );
+        assert_eq!(super::prerequisites("Magisk", false, false, true), "");
+    }
     use super::*;
     #[test]
     fn shell_quotes_untrusted_strings() {

@@ -36,6 +36,7 @@ pub fn validate_app(app: &AppInfo) -> Result<()> {
     if app.package == APP_ID
         || app.system
         || !app.enabled
+        || !app.installed
         || app.uid / 100000 != 0
         || !app.module_state.is_empty()
     {
@@ -77,9 +78,14 @@ for m in /data/adb/modules/sysleaf_*; do
   [ -d "$m" ] || continue
   [ "$(cat "$m/.sysleaf-managed" 2>/dev/null)" = SYSLEAF_V1 ] || continue
   state=installed
+  [ -f "$m/migration_pending_boot" ] && [ "$(cat "$m/migration_pending_boot")" = "$(cat /proc/sys/kernel/random/boot_id)" ] && state=pending
   [ -e "$m/disable" ] && state=disabled
   [ -e "$m/remove" ] && state=removing
-  printf '%s\t%s\t%s\n' "$(cat "$m/package")" "$state" "$(cat "$m/installed_boot_id" 2>/dev/null)"
+  package=$(cat "$m/package")
+  target=unknown
+  [ -d "$m/system/system_ext/priv-app/$package" ] && target=/system_ext/priv-app
+  [ -d "$m/system/app/$package" ] && target=/system/app
+  printf '%s\t%s\t%s\t%s\n' "$package" "$state" "$(cat "$m/installed_boot_id" 2>/dev/null)" "$target"
 done
 "#,
         Duration::from_secs(15),
@@ -94,6 +100,7 @@ done
                 package,
                 state: parts.next()?.into(),
                 boot_id: parts.next().unwrap_or("").into(),
+                target: parts.next().unwrap_or("unknown").into(),
             })
         })
         .collect())
@@ -195,7 +202,16 @@ needed=8192
             quote(&expected)
         );
         script.push_str(&check);
-        script.push_str(&format!("m=\"$stage/{id}\"\napp=\"$m/system/system_ext/priv-app/{}\"\nmkdir -p \"$app\" \"$m/system/system_ext/etc/permissions\"\n", app.package));
+        let banking = app.category == "banking";
+        let target = if banking {
+            "system/app"
+        } else {
+            "system/system_ext/priv-app"
+        };
+        script.push_str(&format!(
+            "m=\"$stage/{id}\"\napp=\"$m/{target}/{}\"\nmkdir -p \"$app\"\n",
+            app.package
+        ));
         for source in &files {
             let name = Path::new(source).file_name().unwrap().to_str().unwrap();
             script.push_str(&format!("before=$(sha256sum {source} | cut -d ' ' -f1)\ncp -f {source} \"$app/{name}\"\nafter=$(sha256sum \"$app/{name}\" | cut -d ' ' -f1)\n[ \"$before\" = \"$after\" ] || fail COPY_FAILED\n[ \"$before\" = \"$(sha256sum {source} | cut -d ' ' -f1)\" ] || fail APP_CHANGED\n",source=quote(source)));
@@ -211,20 +227,30 @@ needed=8192
             .filter(|c| *c != '\n' && *c != '\r')
             .take(100)
             .collect();
-        let prop = format!("id={id}\nname=SysLeaf · {name}\nversion=1.0\nversionCode=1\nauthor=SysLeaf\ndescription=Systemless system_ext/priv-app overlay for {}. User data stays in /data.\n", app.package);
-        for (file, content) in [
+        let mount_target = if banking {
+            "/system/app"
+        } else {
+            "/system_ext/priv-app"
+        };
+        let prop = format!("id={id}\nname=SysLeaf · {name}\nversion=1.1\nversionCode=2\nauthor=tnyfishy\ndescription=Systemless {mount_target} overlay for {}. User data stays in /data.\n", app.package);
+        let mut contents = vec![
             ("module.prop".into(), prop),
             ("package".into(), app.package.clone()),
             (".sysleaf-managed".into(), MARKER.into()),
             ("installed_boot_id".into(), layout.boot_id.into()),
-            (
+            ("mount_target".into(), mount_target.into()),
+        ];
+        if !banking {
+            script.push_str("mkdir -p \"$m/system/system_ext/etc/permissions\"\n");
+            contents.push((
                 format!(
                     "system/system_ext/etc/permissions/privapp-sysleaf-{}.xml",
                     app.package
                 ),
                 xml_permissions(app)?,
-            ),
-        ] {
+            ));
+        }
+        for (file, content) in contents {
             script.push_str(&format!(
                 "printf '%s\\n' {} > \"$m/{file}\"\n",
                 quote(&content)
@@ -265,7 +291,9 @@ pub fn install(packages: &[String], inventory: &[AppInfo]) -> Result<OperationRe
         selected.push(app.clone());
     }
     let env = root::probe()?;
-    if !env.can_systemize {
+    if !env.can_systemize
+        && !(env.reason == "PARTITION_MISSING" && selected.iter().all(|a| a.category == "banking"))
+    {
         return Err(CoreError::new(
             &env.reason,
             "Systemizer prerequisites are not met.",
@@ -292,6 +320,197 @@ pub fn install(packages: &[String], inventory: &[AppInfo]) -> Result<OperationRe
         return Err(CoreError::new(
             "INSTALL_FAILED",
             "Module installation did not complete.",
+        ));
+    }
+    Ok(OperationResult {
+        packages: packages.to_vec(),
+        reboot_required: true,
+    })
+}
+
+fn migration_script(packages: &[String], layout: &Layout<'_>) -> Result<String> {
+    let stage = format!("{}/.sysleaf-bank-stage-{}", layout.adb, layout.token);
+    let backup = format!("{}/.sysleaf-bank-backup-{}", layout.adb, layout.token);
+    let modules = format!("{}/modules", layout.adb);
+    let lock = format!("{}/.sysleaf-lock", layout.adb);
+    let mut script = format!(
+        r#"set -eu
+fail() {{ echo "SYSLEAF_ERROR:$1" >&2; exit 1; }}
+[ "$(id -u)" = 0 ] || fail ROOT_DENIED
+stage={stage}
+backup={backup}
+modules={modules}
+lock={lock}
+mkdir "$lock" 2>/dev/null || fail OPERATION_BUSY
+old_moved=''
+published=''
+committed=false
+cleanup() {{
+  if [ "$committed" = false ]; then
+    for id in $published; do rm -rf "$modules/$id"; done
+    for id in $old_moved; do
+      if [ -d "$backup/$id" ]; then mv "$backup/$id" "$modules/$id" || echo SYSLEAF_ERROR:ROLLBACK_FAILED >&2; fi
+    done
+    rmdir "$backup" 2>/dev/null || true
+  fi
+  rm -rf "$stage"
+  rmdir "$lock" 2>/dev/null || true
+}}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+mkdir "$stage" "$backup"
+hash_tree() {{
+  (cd "$1" || exit 1
+   find . -type f -exec sha256sum {{}} + > "$stage/.hash-tree" || exit 1
+   sort "$stage/.hash-tree")
+}}
+needed=8192
+"#,
+        stage = quote(&stage),
+        backup = quote(&backup),
+        modules = quote(&modules),
+        lock = quote(&lock)
+    );
+    for package in packages {
+        validate_package(package)?;
+        let id = module_id(package);
+        script.push_str(&format!(
+            r#"old="$modules/{id}"
+[ -d "$old" ] && [ ! -L "$old" ] || fail APP_CHANGED
+[ "$(cat "$old/.sysleaf-managed")" = SYSLEAF_V1 ] || fail APP_CHANGED
+[ "$(cat "$old/package")" = {package} ] || fail APP_CHANGED
+[ ! -e "$old/remove" ] || fail APP_CHANGED
+[ -d "$old/system/system_ext/priv-app/{raw}" ] || fail APP_CHANGED
+[ ! -e "$old/system/app/{raw}" ] || fail APP_CHANGED
+[ -z "$(find "$old" -type l -print)" ] || fail INVALID_SOURCE
+needed=$((needed + $(du -sk "$old" | cut -f1)))
+"#,
+            package = quote(package),
+            raw = package
+        ));
+    }
+    script.push_str(&format!("available=$(df -Pk {} | tail -n 1 | awk '{{print $4}}')\n[ \"$available\" -ge \"$needed\" ] || fail NO_SPACE\n", quote(layout.adb)));
+    for package in packages {
+        let id = module_id(package);
+        // Keep the old directory outside modules until after the next boot;
+        // mounted overlays may still refer to these inodes during this boot.
+        let cleanup_script = format!(
+            r#"#!/system/bin/sh
+mounted=true
+for apk in {module}/system/app/{package}/*.apk; do
+  [ -f "$apk" ] && cmp -s "$apk" {target}/"${{apk##*/}}" || mounted=false
+done
+if [ "$(cat /proc/sys/kernel/random/boot_id)" != {boot} ] && [ "$mounted" = true ]; then
+  rm -rf {old}
+  rmdir {parent} 2>/dev/null || true
+fi
+"#,
+            boot = quote(layout.boot_id),
+            target = quote(&format!("/system/app/{package}")),
+            module = quote(&format!("{modules}/{id}")),
+            old = quote(&format!("{backup}/{id}")),
+            parent = quote(&backup)
+        );
+        script.push_str(&format!(r#"old="$modules/{id}"
+src="$old/system/system_ext/priv-app/{package}"
+before=$(hash_tree "$src")
+[ -n "$before" ] && [ -n "$(find "$src" -maxdepth 1 -type f -name '*.apk' -print)" ] || fail INVALID_SOURCE
+m="$stage/{id}"
+module_before=$(hash_tree "$old")
+cp -a "$old" "$m"
+[ "$(hash_tree "$m")" = "$module_before" ] || fail COPY_FAILED
+printf '%s\n' "$module_before" > "$stage/{id}.before"
+mkdir -p "$m/system/app"
+mv "$m/system/system_ext/priv-app/{package}" "$m/system/app/{package}"
+[ "$(hash_tree "$m/system/app/{package}")" = "$before" ] || fail COPY_FAILED
+[ "$(hash_tree "$src")" = "$before" ] || fail APP_CHANGED
+rm -f "$m/system/system_ext/etc/permissions/privapp-sysleaf-{package}.xml"
+rmdir "$m/system/system_ext/priv-app" "$m/system/system_ext/etc/permissions" "$m/system/system_ext/etc" "$m/system/system_ext" 2>/dev/null || true
+sed -i 's|^version=.*|version=1.1|; s|^versionCode=.*|versionCode=2|; s|^description=.*|description=Systemless /system/app banking overlay. User data stays in /data.|' "$m/module.prop"
+printf '%s\n' /system/app > "$m/mount_target"
+printf '%s\n' {boot} > "$m/installed_boot_id"
+printf '%s\n' {boot} > "$m/migration_pending_boot"
+printf '%s\n' {cleanup} > "$m/service.sh"
+chown -R 0:0 "$m"
+find "$m" -type d -exec chmod 0755 {{}} \;
+find "$m" -type f -exec chmod 0644 {{}} \;
+chmod 0755 "$m/service.sh"
+chcon -R u:object_r:system_file:s0 "$m/system" || fail SELINUX_FAILED
+"#, boot=quote(layout.boot_id), cleanup=quote(&cleanup_script)));
+    }
+    for package in packages {
+        let id = module_id(package);
+        script.push_str(&format!(
+            r#"[ ! -e "$modules/{id}/remove" ] || fail APP_CHANGED
+[ "$(hash_tree "$modules/{id}")" = "$(cat "$stage/{id}.before")" ] || fail APP_CHANGED
+old_moved="$old_moved {id}"
+mv "$modules/{id}" "$backup/{id}"
+published="$published {id}"
+mv "$stage/{id}" "$modules/{id}"
+"#
+        ));
+    }
+    script.push_str("sync\ncommitted=true\nprintf 'SYSLEAF_OK\\n'\n");
+    Ok(script)
+}
+
+pub fn migrate_banks(packages: &[String], inventory: &[AppInfo]) -> Result<OperationResult> {
+    if packages.is_empty()
+        || packages.len() > 100
+        || packages.iter().collect::<BTreeSet<_>>().len() != packages.len()
+    {
+        return Err(CoreError::new(
+            "INVALID_SELECTION",
+            "Select between 1 and 100 distinct banking modules.",
+        ));
+    }
+    for package in packages {
+        validate_package(package)?;
+        let app = inventory
+            .iter()
+            .find(|a| &a.package == package)
+            .ok_or_else(|| CoreError::new("APP_CHANGED", "Refresh the app list."))?;
+        if app.category != "banking"
+            || app.module_target != "/system_ext/priv-app"
+            || app.module_state.is_empty()
+            || app.module_state == "removing"
+        {
+            return Err(CoreError::new(
+                "APP_CHANGED",
+                "Only existing SysLeaf banking modules can be moved.",
+            ));
+        }
+    }
+    let env = root::probe()?;
+    if !env.can_systemize && env.reason != "PARTITION_MISSING" {
+        return Err(CoreError::new(
+            &env.reason,
+            "Mount prerequisites are not met.",
+        ));
+    }
+    let token = format!(
+        "{}-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+        std::process::id()
+    );
+    let out = root::run(
+        &migration_script(
+            packages,
+            &Layout {
+                adb: "/data/adb",
+                boot_id: &env.boot_id,
+                token: &token,
+            },
+        )?,
+        Duration::from_secs(600),
+    )?;
+    if !out.contains("SYSLEAF_OK") {
+        return Err(CoreError::new(
+            "INSTALL_FAILED",
+            "Banking module migration did not complete.",
         ));
     }
     Ok(OperationResult {
@@ -349,12 +568,14 @@ mod tests {
             native_lib: String::new(),
             system: false,
             enabled: true,
+            installed: true,
             category: "other".into(),
             category_reason: "unknown".into(),
             privileged_permissions: vec!["android.permission.READ_PRIVILEGED_PHONE_STATE".into()],
             uid: 10123,
             version: "1".into(),
             module_state: String::new(),
+            module_target: String::new(),
             icon: None,
         }
     }
@@ -446,6 +667,33 @@ mod tests {
         );
         assert_eq!(std::fs::read_to_string(&userdata).unwrap(), "PRESERVE_ME");
         assert!(!adb.join(".sysleaf-lock").exists());
+        let mut bank = app.clone();
+        bank.package = "com.mbmobile".into();
+        bank.category = "banking".into();
+        let bank_result = run(&[bank], "bank");
+        assert!(
+            bank_result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bank_result.stderr)
+        );
+        let bank_module = adb.join("modules/sysleaf_com.mbmobile");
+        assert!(bank_module
+            .join("system/app/com.mbmobile/base.apk")
+            .exists());
+        assert!(bank_module
+            .join("system/app/com.mbmobile/split_config.apk")
+            .exists());
+        assert!(bank_module
+            .join("system/app/com.mbmobile/lib/arm64/test.so")
+            .exists());
+        assert!(!bank_module.join("system/system_ext").exists());
+        assert_eq!(
+            std::fs::read_to_string(bank_module.join("mount_target"))
+                .unwrap()
+                .trim(),
+            "/system/app"
+        );
+        std::fs::remove_dir_all(bank_module).unwrap();
         std::fs::remove_dir_all(adb.join("modules/sysleaf_com.example")).unwrap();
         let mut broken = app.clone();
         broken.package = "com.broken".into();
@@ -485,5 +733,172 @@ mod tests {
         assert!(!adb.join(".sysleaf-stage-4").exists());
         assert!(!adb.join(".sysleaf-lock").exists());
         assert_eq!(std::fs::read_to_string(userdata).unwrap(), "PRESERVE_ME");
+    }
+
+    #[test]
+    fn banking_migration_preserves_payload_state_backup_and_rolls_back() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let adb = tmp.path().join("adb");
+        let bin = tmp.path().join("bin");
+        std::fs::create_dir_all(&adb).unwrap();
+        std::fs::create_dir_all(&bin).unwrap();
+        for (name, body) in [("id", "echo 0"), ("chown", "exit 0"), ("chcon", "exit 0")] {
+            let p = bin.join(name);
+            std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let packages = vec![
+            "com.mbmobile".to_string(),
+            "com.tpb.mb.gprsandroid".to_string(),
+        ];
+        let seed = || {
+            for package in &packages {
+                let module = adb.join(format!("modules/sysleaf_{package}"));
+                let app = module.join(format!("system/system_ext/priv-app/{package}"));
+                std::fs::create_dir_all(app.join("lib/arm64")).unwrap();
+                for (n, b) in [
+                    ("base.apk", "BASE"),
+                    ("split_config.apk", "SPLIT"),
+                    ("lib/arm64/a.so", "NATIVE"),
+                ] {
+                    std::fs::write(app.join(n), b).unwrap();
+                }
+                let permissions = module.join("system/system_ext/etc/permissions");
+                std::fs::create_dir_all(&permissions).unwrap();
+                std::fs::write(
+                    permissions.join(format!("privapp-sysleaf-{package}.xml")),
+                    "DENIALS",
+                )
+                .unwrap();
+                std::fs::write(module.join(".sysleaf-managed"), MARKER).unwrap();
+                std::fs::write(module.join("package"), package).unwrap();
+                std::fs::write(module.join("installed_boot_id"), "BOOT_OLD").unwrap();
+                std::fs::write(
+                    module.join("module.prop"),
+                    format!("id=sysleaf_{package}\nversion=1.0\nversionCode=1\ndescription=old\n"),
+                )
+                .unwrap();
+                if package == "com.mbmobile" {
+                    std::fs::write(module.join("disable"), "").unwrap();
+                }
+            }
+        };
+        let run = |token: &str| {
+            let script = migration_script(
+                &packages,
+                &Layout {
+                    adb: adb.to_str().unwrap(),
+                    boot_id: "BOOT_NOW",
+                    token,
+                },
+            )
+            .unwrap();
+            std::process::Command::new("sh")
+                .args(["-c", &script])
+                .env(
+                    "PATH",
+                    format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+                )
+                .output()
+                .unwrap()
+        };
+        let private_data = tmp.path().join("user-data");
+        std::fs::write(&private_data, "PRESERVED").unwrap();
+        seed();
+        let out = run("ok");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        for package in &packages {
+            let module = adb.join(format!("modules/sysleaf_{package}"));
+            let dest = module.join(format!("system/app/{package}"));
+            assert_eq!(
+                std::fs::read_to_string(dest.join("base.apk")).unwrap(),
+                "BASE"
+            );
+            assert_eq!(
+                std::fs::read_to_string(dest.join("split_config.apk")).unwrap(),
+                "SPLIT"
+            );
+            assert_eq!(
+                std::fs::read_to_string(dest.join("lib/arm64/a.so")).unwrap(),
+                "NATIVE"
+            );
+            assert!(!module.join("system/system_ext").exists());
+            assert_eq!(module.join("disable").exists(), package == "com.mbmobile");
+            assert!(adb.join(format!(".sysleaf-bank-backup-ok/sysleaf_{package}/system/system_ext/priv-app/{package}/base.apk")).exists());
+            assert_eq!(
+                std::fs::read_to_string(module.join("migration_pending_boot"))
+                    .unwrap()
+                    .trim(),
+                "BOOT_NOW"
+            );
+        }
+        assert!(!adb.join(".sysleaf-lock").exists());
+        assert!(!adb.join(".sysleaf-bank-stage-ok").exists());
+        assert_eq!(std::fs::read_to_string(&private_data).unwrap(), "PRESERVED");
+        // Exercise the real generated cleanup logic against a simulated boot
+        // and mount. Never remove backups in the same boot or on a bad mount.
+        let boot_file = tmp.path().join("boot-id");
+        let mounted = tmp.path().join("mounted-apps");
+        let package = &packages[1];
+        let module = adb.join(format!("modules/sysleaf_{package}"));
+        let backup = adb.join(format!(".sysleaf-bank-backup-ok/sysleaf_{package}"));
+        let service = std::fs::read_to_string(module.join("service.sh"))
+            .unwrap()
+            .replace(
+                "/proc/sys/kernel/random/boot_id",
+                boot_file.to_str().unwrap(),
+            )
+            .replace(
+                &quote(&format!("/system/app/{package}")),
+                &quote(mounted.to_str().unwrap()),
+            );
+        std::fs::create_dir_all(&mounted).unwrap();
+        std::fs::write(mounted.join("base.apk"), "BASE").unwrap();
+        std::fs::write(mounted.join("split_config.apk"), "SPLIT").unwrap();
+        let cleanup = || {
+            let result = std::process::Command::new("sh")
+                .args(["-c", &service])
+                .output()
+                .unwrap();
+            assert!(result.status.success());
+        };
+        std::fs::write(&boot_file, "BOOT_NOW").unwrap();
+        cleanup();
+        assert!(backup.exists());
+        std::fs::write(&boot_file, "BOOT_NEXT").unwrap();
+        std::fs::write(mounted.join("split_config.apk"), "WRONG").unwrap();
+        cleanup();
+        assert!(backup.exists());
+        std::fs::write(mounted.join("split_config.apk"), "SPLIT").unwrap();
+        cleanup();
+        assert!(!backup.exists());
+        assert!(adb
+            .join(".sysleaf-bank-backup-ok/sysleaf_com.mbmobile")
+            .exists());
+        assert!(module.exists());
+        std::fs::remove_dir_all(adb.join("modules")).unwrap();
+        seed();
+        let mv = bin.join("mv");
+        std::fs::write(&mv, "#!/bin/sh\ncase \"$1\" in */.sysleaf-bank-stage-fail/sysleaf_com.tpb.mb.gprsandroid) exit 1;; esac\nexec /bin/mv \"$@\"\n").unwrap();
+        std::fs::set_permissions(&mv, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let out = run("fail");
+        assert!(!out.status.success());
+        for package in &packages {
+            let module = adb.join(format!("modules/sysleaf_{package}"));
+            assert!(module
+                .join(format!("system/system_ext/priv-app/{package}/base.apk"))
+                .exists());
+            assert!(!module.join("system/app").exists());
+            assert_eq!(module.join("disable").exists(), package == "com.mbmobile");
+        }
+        assert!(!adb.join(".sysleaf-bank-stage-fail").exists());
+        assert!(!adb.join(".sysleaf-bank-backup-fail").exists());
+        assert!(!adb.join(".sysleaf-lock").exists());
+        assert_eq!(std::fs::read_to_string(private_data).unwrap(), "PRESERVED");
     }
 }

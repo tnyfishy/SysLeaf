@@ -143,6 +143,10 @@ Future<void> confirmSystemize(
                                   ).colorScheme.onSurfaceVariant,
                                 ),
                               ),
+                              Text(
+                                app.target,
+                                style: const TextStyle(fontSize: 11),
+                              ),
                             ],
                           ),
                         ),
@@ -175,6 +179,69 @@ Future<void> confirmSystemize(
   );
   if (accepted != true || !context.mounted) return;
   final success = await controller.installSelected();
+  if (!context.mounted) return;
+  if (!success) {
+    await showFailure(context, controller);
+    return;
+  }
+  await showSuccess(context, controller);
+}
+
+Future<void> confirmBankMigration(
+  BuildContext context,
+  AppController controller,
+) async {
+  final apps = List<InstalledApp>.unmodifiable(controller.bankMigrations);
+  if (apps.isEmpty) return;
+  final s = Strings(controller.preferences.language);
+  final accepted = await softDialog<bool>(
+    context,
+    AlertDialog(
+      icon: const Icon(Icons.account_balance_outlined),
+      title: Text(s.t('migrate_banks')),
+      content: SizedBox(
+        width: 400,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .52,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(s.t('migrate_banks_note')),
+                const SizedBox(height: 16),
+                for (final app in apps)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: AppIcon(
+                      app: app,
+                      controller: controller,
+                      size: 36,
+                    ),
+                    title: Text(app.name),
+                    subtitle: Text(app.package),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(s.t('wait')),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: Text(s.t('yes')),
+        ),
+      ],
+    ),
+  );
+  if (accepted != true || !context.mounted) return;
+  final success = await controller.migrateBanks(apps);
   if (!context.mounted) return;
   if (!success) {
     await showFailure(context, controller);

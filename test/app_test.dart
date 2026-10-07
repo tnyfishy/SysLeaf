@@ -117,6 +117,111 @@ void main() {
     await tester.pumpAndSettle();
     expect(backend.calls, contains('reboot'));
   });
+  testWidgets('requested copy, active Hybrid link visibility and version 1.1', (
+    tester,
+  ) async {
+    final controller = AppController(FakeBackend());
+    await setup(tester, controller);
+    expect(find.text('For your best experience😊'), findsOneWidget);
+    expect(find.text('Cá nhân hóa trải nghiệm của bạn'), findsOneWidget);
+    expect(find.text('SYSTEMIZE • READY TO USE 👾'), findsOneWidget);
+    expect(find.text('MADE WITH ❤️ BY TNYFISHY 🇻🇳'), findsOneWidget);
+    expect(find.text('Đang hoạt động'), findsOneWidget);
+    expect(find.text('Tải Hybrid Mount ↗'), findsNothing);
+    await tester.tap(find.text('Cài đặt'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Về SysLeaf'));
+    await tester.tap(find.text('Về SysLeaf'));
+    await tester.pumpAndSettle();
+    expect(find.text('Phiên bản 1.1'), findsOneWidget);
+    expect(find.text('Tải Hybrid Mount ↗'), findsNothing);
+    expect(find.textContaining('Flutter + Rust'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('Hybrid download link appears only when not ready', (
+    tester,
+  ) async {
+    final backend = FakeBackend()
+      ..hybridReady = false
+      ..canSystemize = false
+      ..reason = 'HYBRID_REQUIRED';
+    await setup(tester, AppController(backend));
+    final link = find.text('Tải Hybrid Mount ↗');
+    expect(link, findsOneWidget);
+    await tester.ensureVisible(link);
+    await tester.tap(link);
+    expect(backend.calls, contains('open_hybrid'));
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'action chips sit below search with no checkmark; sort statuses are separate',
+    (tester) async {
+      await setup(
+        tester,
+        AppController(FakeBackend()),
+        size: const Size(320, 640),
+      );
+      await tester.tap(find.text('Ứng dụng'));
+      await tester.pumpAndSettle();
+      final mode = find.byKey(const ValueKey('mode-systemize'));
+      expect(tester.widget<ChoiceChip>(mode).showCheckmark, false);
+      expect(
+        tester.getTopLeft(mode).dy,
+        greaterThanOrEqualTo(tester.getBottomLeft(find.byType(TextField)).dy),
+      );
+      await tester.tap(find.byTooltip('Sắp xếp'));
+      await tester.pumpAndSettle();
+      for (final label in [
+        'Ứng dụng đã gỡ cài đặt',
+        'Ứng dụng đã vô hiệu hoá',
+        'Ứng dụng đã systemize',
+      ]) {
+        expect(find.text(label), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'banking module migration reviews targets and cancellation preserves them',
+    (tester) async {
+      final backend = FakeBackend();
+      final bank = backend.apps.firstWhere(
+        (a) => a['package'] == 'com.mbmobile',
+      );
+      bank['module_state'] = 'active';
+      bank['module_target'] = '/system_ext/priv-app';
+      bank['system'] = true;
+      final controller = AppController(backend);
+      await setup(tester, controller);
+      await tester.ensureVisible(find.text('Chuyển module ngân hàng'));
+      await tester.tap(find.text('Chuyển module ngân hàng'));
+      await tester.pumpAndSettle();
+      final button = find.text('Chuyển module ngân hàng (1)');
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('MB Bank'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Khoan đã😐'));
+      await tester.pumpAndSettle();
+      expect(backend.calls, isNot(contains('migrate_banks')));
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Vâng!😋'));
+      await tester.pumpAndSettle();
+      expect(controller.bankMigrations, isEmpty);
+      expect(controller.pendingCount, 1);
+      expect(bank['module_target'], '/system/app');
+      await tester.tap(find.text('Để sau'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final action in [AppAction.disable, AppAction.uninstall]) {
     testWidgets(
@@ -245,7 +350,7 @@ void main() {
     expect(backend.preferences, {'language': 'en', 'theme': 'black'});
     await tester.tap(find.text('Home'));
     await tester.pumpAndSettle();
-    expect(find.text('Your apps.\nPart of the system.'), findsOneWidget);
+    expect(find.text('Personalize your experience'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -13,13 +13,21 @@ pub struct AppInfo {
     pub native_lib: String,
     pub system: bool,
     pub enabled: bool,
+    #[serde(default = "default_installed")]
+    pub installed: bool,
     pub category: String,
     pub category_reason: String,
     pub privileged_permissions: Vec<String>,
     pub uid: i32,
     pub version: String,
     pub module_state: String,
+    #[serde(default)]
+    pub module_target: String,
     pub icon: Option<String>,
+}
+
+fn default_installed() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +66,7 @@ pub struct ManagedModule {
     pub package: String,
     pub state: String,
     pub boot_id: String,
+    pub target: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,6 +1,6 @@
-enum AppFilter { all, systemized, social, banking }
+enum AppFilter { all, systemized, social, banking, disabled, uninstalled }
 
-enum AppSort { name, systemized, social, banking }
+enum AppSort { name, systemized, disabled, uninstalled, social, banking }
 
 enum Appearance { system, light, dark, black }
 
@@ -93,13 +93,24 @@ class InstalledApp {
     this.version = '',
     this.uid = 10000,
     this.categoryReason = 'unknown',
+    this.installed = true,
+    this.moduleTarget = '',
   });
   final String package, name, category, moduleState, version, categoryReason;
-  final bool system, enabled;
+  final bool system, enabled, installed;
+  final String moduleTarget;
+  String get target =>
+      category == 'banking' ? '/system/app' : '/system_ext/priv-app';
+  bool get needsBankMigration =>
+      category == 'banking' &&
+      managed &&
+      moduleState != 'removing' &&
+      moduleTarget == '/system_ext/priv-app';
   final int uid;
   bool get managed => moduleState.isNotEmpty;
   bool get systemized => system || managed;
   bool get eligible =>
+      installed &&
       !system &&
       !managed &&
       enabled &&
@@ -112,6 +123,7 @@ class InstalledApp {
     AppAction.uninstall => manageable,
   };
   bool get manageable =>
+      installed &&
       uid ~/ 100000 == 0 &&
       package != 'android' &&
       package != 'dev.sysleaf.sysleaf';
@@ -125,6 +137,8 @@ class InstalledApp {
     version: json['version'] as String? ?? '',
     uid: json['uid'] as int? ?? 10000,
     categoryReason: json['category_reason'] as String? ?? 'unknown',
+    installed: json['installed'] != false,
+    moduleTarget: json['module_target'] as String? ?? '',
   );
 }
 
@@ -137,10 +151,12 @@ List<InstalledApp> arrangeApps(
   final text = query.toLowerCase().trim();
   final list = apps.where((app) {
     final matches = switch (filter) {
-      AppFilter.all => true,
+      AppFilter.all => app.installed || sort == AppSort.uninstalled,
       AppFilter.systemized => app.systemized,
       AppFilter.social => app.category == 'social',
       AppFilter.banking => app.category == 'banking',
+      AppFilter.disabled => app.installed && !app.enabled,
+      AppFilter.uninstalled => !app.installed,
     };
     return matches &&
         (text.isEmpty ||
@@ -150,10 +166,16 @@ List<InstalledApp> arrangeApps(
   int rank(InstalledApp app) => switch (sort) {
     AppSort.name => 0,
     AppSort.systemized => app.managed ? 0 : 1,
+    AppSort.disabled => app.installed && !app.enabled ? 0 : 1,
+    AppSort.uninstalled => !app.installed ? 0 : 1,
     AppSort.social => app.category == 'social' ? 0 : 1,
     AppSort.banking => app.category == 'banking' ? 0 : 1,
   };
   list.sort((a, b) {
+    if (sort == AppSort.disabled || sort == AppSort.uninstalled) {
+      final status = rank(a).compareTo(rank(b));
+      if (status != 0) return status;
+    }
     int pin(InstalledApp app) => app.managed
         ? 0
         : app.system

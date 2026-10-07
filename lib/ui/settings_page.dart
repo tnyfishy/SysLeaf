@@ -112,7 +112,10 @@ class SettingsPage extends StatelessWidget {
                   s.t('manager'),
                   controller.environment?.manager ?? '—',
                 ),
-                _InfoRow(s.t('partition'), '/system_ext/priv-app'),
+                _InfoRow(
+                  s.t('partition'),
+                  '/system/app (🏦)\n/system_ext/priv-app',
+                ),
               ],
             ),
           ),
@@ -135,11 +138,6 @@ class SettingsPage extends StatelessWidget {
                     color: c.onSurfaceVariant,
                     height: 1.5,
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: controller.openHybrid,
-                  child: Text(s.t('hybrid_link')),
                 ),
               ],
             ),

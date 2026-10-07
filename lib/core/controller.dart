@@ -20,6 +20,14 @@ class AppController extends ChangeNotifier {
   int get managedCount =>
       apps.where((a) => a.managed && a.moduleState != 'removing').length;
   int get eligibleCount => apps.where((a) => a.eligible).length;
+  List<InstalledApp> get bankMigrations =>
+      apps.where((a) => a.needsBankMigration).toList();
+  bool get canInstallSelection =>
+      environment?.canSystemize == true ||
+      (rooted &&
+          environment?.reason == 'PARTITION_MISSING' &&
+          selectedApps.isNotEmpty &&
+          selectedApps.every((a) => a.category == 'banking'));
   List<InstalledApp> get selectedApps =>
       apps.where((a) => selected.contains(a.package)).toList();
 
@@ -112,7 +120,7 @@ class AppController extends ChangeNotifier {
     if (appAction != AppAction.systemize ||
         busy ||
         selected.isEmpty ||
-        environment?.canSystemize != true) {
+        !canInstallSelection) {
       return false;
     }
     return _mutate('install', {'packages': selected.toList()}, clear: true);
@@ -120,6 +128,15 @@ class AppController extends ChangeNotifier {
 
   Future<bool> removeModule(InstalledApp app) =>
       _mutate('remove', {'package': app.package});
+
+  Future<bool> migrateBanks(List<InstalledApp> reviewed) {
+    if (reviewed.isEmpty || reviewed.any((a) => !a.needsBankMigration)) {
+      return Future.value(false);
+    }
+    return _mutate('migrate_banks', {
+      'packages': reviewed.map((a) => a.package).toList(),
+    });
+  }
 
   void setAppAction(AppAction action) {
     if (busy || refreshing || action == appAction) return;

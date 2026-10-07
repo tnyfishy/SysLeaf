@@ -52,7 +52,7 @@ fn validate_selection(packages: &[String], apps: &[AppInfo], action: Action) -> 
             .iter()
             .find(|a| &a.package == package)
             .ok_or_else(|| CoreError::new("APP_CHANGED", "Refresh the installed app list."))?;
-        if package == APP_ID || app.uid / 100000 != 0 {
+        if package == APP_ID || !app.installed || app.uid / 100000 != 0 {
             return Err(CoreError::new(
                 "APP_NOT_ELIGIBLE",
                 "SysLeaf and other profiles cannot be changed.",
@@ -182,12 +182,14 @@ mod tests {
             native_lib: String::new(),
             system: true,
             enabled: true,
+            installed: true,
             category: "other".into(),
             category_reason: String::new(),
             privileged_permissions: vec![],
             uid: 1000,
             version: String::new(),
             module_state: String::new(),
+            module_target: String::new(),
             icon: None,
         }
     }

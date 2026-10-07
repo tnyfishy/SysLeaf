@@ -103,7 +103,7 @@ pub fn apps() -> Result<Vec<AppInfo>> {
                 &manager,
                 "getInstalledApplications",
                 "(I)Ljava/util/List;",
-                &[JValue::Int(0)],
+                &[JValue::Int(8192)], // MATCH_UNINSTALLED_PACKAGES includes removed system apps.
             )?
             .l()?;
         let count = env.call_method(&list, "size", "()I", &[])?.i()?;
@@ -146,13 +146,35 @@ pub fn apps() -> Result<Vec<AppInfo>> {
                 let enabled = env.get_field(&info, "enabled", "Z")?.z()?;
                 let category_int = env.get_field(&info, "category", "I")?.i()?;
                 let (category, category_reason) = categories::classify(&package, category_int);
+                if flags & 0x800000 == 0 {
+                    // Removed apps are review-only entries, never mutation
+                    // candidates. Their APK/permission metadata may be gone.
+                    return Ok(AppInfo {
+                        package,
+                        name,
+                        source,
+                        splits,
+                        native_lib,
+                        system: flags & 1 != 0,
+                        enabled,
+                        installed: false,
+                        category,
+                        category_reason,
+                        privileged_permissions: Vec::new(),
+                        uid,
+                        version: String::new(),
+                        module_state: String::new(),
+                        module_target: String::new(),
+                        icon: None,
+                    });
+                }
                 let package_string = env.new_string(&package)?;
                 let package_info = env
                     .call_method(
                         &manager,
                         "getPackageInfo",
                         "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;",
-                        &[JValue::Object(&package_string), JValue::Int(4096)],
+                        &[JValue::Object(&package_string), JValue::Int(4096 | 8192)],
                     )?
                     .l()?;
                 let version_obj = env
@@ -211,12 +233,14 @@ pub fn apps() -> Result<Vec<AppInfo>> {
                     native_lib,
                     system: flags & 1 != 0,
                     enabled,
+                    installed: flags & 0x800000 != 0,
                     category,
                     category_reason,
                     privileged_permissions,
                     uid,
                     version,
                     module_state: String::new(),
+                    module_target: String::new(),
                     icon: None,
                 })
             });

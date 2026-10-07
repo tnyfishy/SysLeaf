@@ -56,7 +56,12 @@ void main() {
   );
   test('system apps stay pinned under all sorts and package search works', () {
     final apps = FakeBackend().apps.map(InstalledApp.fromJson).toList();
-    for (final sort in AppSort.values) {
+    for (final sort in [
+      AppSort.name,
+      AppSort.systemized,
+      AppSort.social,
+      AppSort.banking,
+    ]) {
       final sorted = arrangeApps(apps, sort: sort);
       expect(sorted.first.package, 'com.demo.notes');
       final firstUser = sorted.indexWhere((a) => !a.systemized);
@@ -76,6 +81,81 @@ void main() {
     expect(controller.rooted, false);
     expect(controller.selected, isEmpty);
   });
+  test('removed apps remain reviewable and cannot be mutated again', () async {
+    final controller = AppController(FakeBackend());
+    await controller.initialize();
+    controller.setAppAction(AppAction.uninstall);
+    controller.selectCategory('banking');
+    final result = await controller.manageApps(
+      AppAction.uninstall,
+      controller.selectedApps,
+    );
+    expect(result!.succeeded, 2);
+    final removed = arrangeApps(controller.apps, filter: AppFilter.uninstalled);
+    expect(removed.map((a) => a.package).toSet(), {
+      'com.mbmobile',
+      'com.vietcombank.vcbmobile',
+    });
+    expect(arrangeApps(controller.apps).every((a) => a.installed), true);
+    for (final app in removed) {
+      for (final action in AppAction.values) {
+        expect(app.selectableFor(action), false);
+      }
+    }
+    expect(
+      arrangeApps(controller.apps, sort: AppSort.uninstalled).first.installed,
+      false,
+    );
+    expect(await controller.manageApps(AppAction.uninstall, removed), isNull);
+    expect(controller.errorCode, 'APP_CHANGED');
+  });
+  test('disabled sorting takes precedence over stock system pinning', () {
+    final apps = [
+      InstalledApp.fromJson(
+        FakeBackend.app('com.stock.system', 'AAA', system: true),
+      ),
+      InstalledApp.fromJson(
+        FakeBackend.app('com.user.disabled', 'ZZZ', enabled: false),
+      ),
+    ];
+    expect(
+      arrangeApps(apps, sort: AppSort.disabled).first.package,
+      'com.user.disabled',
+    );
+    expect(
+      arrangeApps(apps, filter: AppFilter.disabled).single.package,
+      'com.user.disabled',
+    );
+  });
+  test(
+    'banking target is distinct and migration keeps disabled modules disabled',
+    () async {
+      final backend = FakeBackend();
+      final bank = backend.apps.firstWhere(
+        (a) => a['package'] == 'com.mbmobile',
+      );
+      bank['module_state'] = 'disabled';
+      bank['module_target'] = '/system_ext/priv-app';
+      final controller = AppController(backend);
+      await controller.initialize();
+      expect(
+        controller.apps.firstWhere((a) => a.package == 'com.mbmobile').target,
+        '/system/app',
+      );
+      expect(
+        controller.apps.firstWhere((a) => a.package == 'com.zing.zalo').target,
+        '/system_ext/priv-app',
+      );
+      expect(await controller.migrateBanks(controller.bankMigrations), true);
+      expect(controller.bankMigrations, isEmpty);
+      expect(
+        controller.apps
+            .firstWhere((a) => a.package == 'com.mbmobile')
+            .moduleState,
+        'disabled',
+      );
+    },
+  );
   test(
     'management includes system apps and clears selection on mode change',
     () async {
@@ -143,7 +223,12 @@ void main() {
         ))!.succeeded,
         1,
       );
-      expect(controller.apps.any((a) => a.package == disabled.package), false);
+      expect(
+        controller.apps.any(
+          (a) => a.package == disabled.package && a.installed,
+        ),
+        false,
+      );
       expect(controller.selected, isEmpty);
     },
   );

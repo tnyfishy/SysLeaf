@@ -1,0 +1,2 @@
+6dcced37f17d68a9d6ea13494559f0571d8bc3b308049c57bb7871c85be7c37a  artifacts/sysleaf-1.1.0-arm64.apk
+b224423822135a3bc18b5bcf87ea9652e3499646ccfcd213c94a3200519ea280  artifacts/sysleaf-1.1.0-universal.apk

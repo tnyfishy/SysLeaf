@@ -5,6 +5,8 @@ class FakeBackend implements Backend {
   bool rootAllowed = true;
   bool failInstall = false;
   bool canSystemize = true;
+  bool hybridReady = true;
+  String reason = '';
   bool failManagement = false;
   final Set<String> failedPackages = {};
   Map<String, dynamic>? lastManagementArgs;
@@ -27,6 +29,8 @@ class FakeBackend implements Backend {
     String state = '',
     bool system = false,
     bool enabled = true,
+    bool installed = true,
+    String target = '',
   }) => {
     'package': package,
     'name': name,
@@ -34,6 +38,8 @@ class FakeBackend implements Backend {
     'module_state': state,
     'system': system,
     'enabled': enabled,
+    'installed': installed,
+    'module_target': target,
     'uid': 10001,
     'version': '1.0',
   };
@@ -57,9 +63,9 @@ class FakeBackend implements Backend {
           'root': true,
           'manager': 'KernelSU',
           'hybrid_installed': true,
-          'hybrid_ready': true,
+          'hybrid_ready': hybridReady,
           'can_systemize': canSystemize,
-          'reason': '',
+          'reason': reason,
           'device': 'Pixel 8 Pro',
           'android_sdk': '35',
           'boot_id': 'BOOT_A',
@@ -77,8 +83,20 @@ class FakeBackend implements Backend {
           throw const BackendException('NO_SPACE', 'Insufficient storage');
         }
         for (final package in args['packages'] as List) {
-          apps.firstWhere((a) => a['package'] == package)['module_state'] =
-              'pending';
+          final app = apps.firstWhere((a) => a['package'] == package);
+          app['module_state'] = 'pending';
+          app['module_target'] = app['category'] == 'banking'
+              ? '/system/app'
+              : '/system_ext/priv-app';
+        }
+        return {'packages': args['packages'], 'reboot_required': true};
+      case 'migrate_banks':
+        for (final package in args['packages'] as List) {
+          final app = apps.firstWhere((a) => a['package'] == package);
+          app['module_target'] = '/system/app';
+          app['module_state'] = app['module_state'] == 'disabled'
+              ? 'disabled'
+              : 'pending';
         }
         return {'packages': args['packages'], 'reboot_required': true};
       case 'remove':
@@ -106,7 +124,8 @@ class FakeBackend implements Backend {
               apps.firstWhere((a) => a['package'] == package)['enabled'] =
                   false;
             } else {
-              apps.removeWhere((a) => a['package'] == package);
+              apps.firstWhere((a) => a['package'] == package)['installed'] =
+                  false;
             }
           }
           results.add({

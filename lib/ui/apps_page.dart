@@ -29,31 +29,6 @@ class _AppsPageState extends State<AppsPage> {
     );
     return Column(
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-          child: Row(
-            children: [
-              for (final action in AppAction.values)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    key: ValueKey('mode-${action.name}'),
-                    selected: controller.appAction == action,
-                    avatar: Icon(switch (action) {
-                      AppAction.systemize => Icons.auto_awesome_rounded,
-                      AppAction.disable => Icons.block_rounded,
-                      AppAction.uninstall => Icons.delete_outline_rounded,
-                    }, size: 18),
-                    label: Text(s.t(action.name)),
-                    onSelected: controller.busy || controller.refreshing
-                        ? null
-                        : (_) => controller.setAppAction(action),
-                  ),
-                ),
-            ],
-          ),
-        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
           child: TextField(
@@ -81,6 +56,32 @@ class _AppsPageState extends State<AppsPage> {
         ),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Row(
+            children: [
+              for (final action in AppAction.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    key: ValueKey('mode-${action.name}'),
+                    selected: controller.appAction == action,
+                    showCheckmark: false,
+                    avatar: Icon(switch (action) {
+                      AppAction.systemize => Icons.auto_awesome_rounded,
+                      AppAction.disable => Icons.block_rounded,
+                      AppAction.uninstall => Icons.delete_outline_rounded,
+                    }, size: 18),
+                    label: Text(s.t(action.name)),
+                    onSelected: controller.busy || controller.refreshing
+                        ? null
+                        : (_) => controller.setAppAction(action),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
           child: Row(
             children: [
@@ -97,6 +98,9 @@ class _AppsPageState extends State<AppsPage> {
                             AppFilter.systemized => Icons.verified_outlined,
                             AppFilter.social => Icons.forum_outlined,
                             AppFilter.banking => Icons.account_balance_outlined,
+                            AppFilter.disabled => Icons.block_rounded,
+                            AppFilter.uninstalled =>
+                              Icons.delete_outline_rounded,
                           }, size: 16),
                     label: Text(
                       s.t(
@@ -146,12 +150,15 @@ class _AppsPageState extends State<AppsPage> {
                               : Icon(switch (option) {
                                   AppSort.name => Icons.sort_by_alpha_rounded,
                                   AppSort.systemized => Icons.verified_outlined,
+                                  AppSort.disabled => Icons.block_rounded,
+                                  AppSort.uninstalled =>
+                                    Icons.delete_outline_rounded,
                                   AppSort.social => Icons.forum_outlined,
                                   AppSort.banking =>
                                     Icons.account_balance_outlined,
                                 }, size: 20),
                           const SizedBox(width: 12),
-                          Text(s.t('by_${option.name}')),
+                          Flexible(child: Text(s.t('by_${option.name}'))),
                         ],
                       ),
                     ),
@@ -166,7 +173,8 @@ class _AppsPageState extends State<AppsPage> {
             child: ErrorCard(code: controller.errorCode!, strings: s),
           ),
         if (controller.appAction == AppAction.systemize &&
-            controller.environment?.canSystemize == false)
+            controller.environment?.canSystemize == false &&
+            !controller.canInstallSelection)
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 2, 20, 10),
             child: ErrorCard(code: controller.environment!.reason, strings: s),
@@ -254,8 +262,7 @@ class _AppsPageState extends State<AppsPage> {
                           key: const ValueKey('apply-selection'),
                           onPressed:
                               (controller.appAction != AppAction.systemize ||
-                                      controller.environment?.canSystemize ==
-                                          true) &&
+                                      controller.canInstallSelection) &&
                                   !controller.busy &&
                                   !controller.refreshing
                               ? () =>
@@ -450,7 +457,9 @@ class _AppRow extends StatelessWidget {
                             color: c.onSurfaceVariant,
                           ),
                         ),
-                        if (status.isNotEmpty || !app.enabled) ...[
+                        if (status.isNotEmpty ||
+                            !app.enabled ||
+                            !app.installed) ...[
                           const SizedBox(height: 7),
                           Wrap(
                             spacing: 6,
@@ -458,17 +467,36 @@ class _AppRow extends StatelessWidget {
                             children: [
                               if (status.isNotEmpty)
                                 StatusPill(
-                                  strings.t(status),
+                                  strings.t(
+                                    status == 'disabled'
+                                        ? 'module_disabled'
+                                        : status,
+                                  ),
                                   warning:
                                       app.pending || status == 'mount_failed',
                                   neutral: !app.managed,
                                 ),
-                              if (!app.enabled)
+                              if (!app.installed)
+                                StatusPill(
+                                  strings.t('uninstalled'),
+                                  warning: true,
+                                ),
+                              if (app.installed && !app.enabled)
                                 StatusPill(
                                   strings.t('not_enabled'),
                                   warning: true,
                                 ),
                             ],
+                          ),
+                        ],
+                        if (app.managed && app.moduleTarget.isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            app.moduleTarget,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: c.onSurfaceVariant,
+                            ),
                           ),
                         ],
                       ],

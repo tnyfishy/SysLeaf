@@ -236,6 +236,7 @@ class _AppShellState extends State<AppShell>
                                     'reboot' => 'rebooting',
                                     'disable_apps' => 'disabling_work',
                                     'uninstall_apps' => 'uninstalling_work',
+                                    'migrate_banks' => 'migrating_banks',
                                     _ => 'installing',
                                   }),
                                   textAlign: TextAlign.center,

@@ -5,7 +5,7 @@ on:
       tag:
         description: Existing version tag to build and publish
         required: true
-        default: v0.2.0
+        default: v1.1.0
         type: string
 permissions:
   contents: write

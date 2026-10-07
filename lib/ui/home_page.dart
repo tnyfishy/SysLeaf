@@ -17,6 +17,9 @@ class HomePage extends StatelessWidget {
     final s = Strings(controller.preferences.language);
     final c = Theme.of(context).colorScheme;
     final env = controller.environment!;
+    final engineActive =
+        env.manager == 'Magisk' ||
+        (env.hybridReady && env.reason != 'HYBRID_RULE_BLOCKED');
     return RefreshIndicator(
       onRefresh: controller.refresh,
       child: SingleChildScrollView(
@@ -43,7 +46,7 @@ class HomePage extends StatelessWidget {
                         const SizedBox(width: 7),
                         Flexible(
                           child: Text(
-                            'SYSTEMLESS · PERSONAL',
+                            'SYSTEMIZE • READY TO USE 👾',
                             style: TextStyle(
                               fontSize: 10,
                               letterSpacing: 1.4,
@@ -252,8 +255,8 @@ class HomePage extends StatelessWidget {
                     ),
                     const SizedBox(height: 14),
                     StatusPill(
-                      s.t(env.canSystemize ? 'mount_ready' : 'mount_needed'),
-                      warning: !env.canSystemize,
+                      s.t(engineActive ? 'mount_ready' : 'mount_needed'),
+                      warning: !engineActive,
                     ),
                     const SizedBox(height: 10),
                     Text(
@@ -261,14 +264,14 @@ class HomePage extends StatelessWidget {
                           ? s.t('hybrid_magisk')
                           : !env.canSystemize
                           ? s.error(env.reason)
-                          : '${env.hybridMode == 'overlay' ? 'OverlayFS' : 'Magic Mount'} · /system_ext/priv-app',
+                          : '${env.hybridMode == 'overlay' ? 'OverlayFS' : 'Magic Mount'} · /system/app (🏦) + /system_ext/priv-app',
                       style: TextStyle(
                         fontSize: 12,
                         color: c.onSurfaceVariant,
                         height: 1.5,
                       ),
                     ),
-                    if (env.manager != 'Magisk')
+                    if (env.manager == 'KernelSU' && !env.hybridReady)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: TextButton(
@@ -278,6 +281,36 @@ class HomePage extends StatelessWidget {
                       ),
                   ],
                 ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ExpandingCard(
+              title: s.t('migrate_banks'),
+              icon: Icons.account_balance_outlined,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.t('migrate_banks_note'),
+                    style: const TextStyle(fontSize: 12, height: 1.5),
+                  ),
+                  if (controller.bankMigrations.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: controller.busy || controller.refreshing
+                          ? null
+                          : () => confirmBankMigration(context, controller),
+                      icon: const Icon(Icons.drive_file_move_rounded),
+                      label: Text(
+                        '${s.t('migrate_banks')} (${controller.bankMigrations.length})',
+                      ),
+                    ),
+                  ] else
+                    Text(
+                      s.t('bank_layout_current'),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
@@ -329,7 +362,7 @@ class HomePage extends StatelessWidget {
             const SizedBox(height: 24),
             Center(
               child: Text(
-                'MADE WITH FLUTTER + RUST',
+                'MADE WITH ❤️ BY TNYFISHY 🇻🇳',
                 style: TextStyle(
                   fontSize: 9,
                   letterSpacing: 1.5,

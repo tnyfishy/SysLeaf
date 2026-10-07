@@ -4,6 +4,7 @@ mod app_management;
 #[cfg(any(target_os = "android", test))]
 mod categories;
 mod error;
+mod history;
 mod model;
 mod modules;
 mod platform;
@@ -28,17 +29,20 @@ fn inventory() -> Result<Vec<model::AppInfo>> {
     root::require_root()?;
     let env = root::probe()?;
     let modules = modules::list()?;
-    let mut apps = platform::apps()?;
+    let mut apps = history::inventory()?;
     for app in &mut apps {
         if let Some(module) = modules.iter().find(|m| m.package == app.package) {
             app.module_state = match module.state.as_str() {
                 "removing" => "removing",
                 "disabled" => "disabled",
+                "pending" => "pending",
+                _ if !app.installed => "module_present",
                 _ if app.system => "active",
                 _ if module.boot_id == env.boot_id => "pending",
                 _ => "mount_failed",
             }
             .into();
+            app.module_target = module.target.clone();
         }
     }
     Ok(apps)
@@ -88,6 +92,17 @@ fn dispatch(request: Value) -> Result<Value> {
             };
             Ok(serde_json::to_value(app_management::apply(
                 &packages, action,
+            )?)?)
+        }
+        "migrate_banks" => {
+            let _guard = MUTATION_LOCK
+                .try_lock()
+                .map_err(|_| CoreError::new("OPERATION_BUSY", "Another operation is running."))?;
+            let packages: Vec<String> =
+                serde_json::from_value(request.get("packages").cloned().unwrap_or(Value::Null))?;
+            Ok(serde_json::to_value(modules::migrate_banks(
+                &packages,
+                &inventory()?,
             )?)?)
         }
         "remove" => {

@@ -11,7 +11,8 @@ flowchart TD
   SU --> Staging[Stage từng module + kiểm tra APK]
   Staging --> Modules[/data/adb/modules/sysleaf_package]
   Modules --> Engine[Magisk Magic Mount hoặc KSU Hybrid Mount]
-  Engine --> Target[/system_ext/priv-app sau reboot]
+  Engine --> Bank[/system/app cho ngân hàng sau reboot]
+  Engine --> Target[/system_ext/priv-app cho app khác sau reboot]
 ```
 
 Application context được Android entry point chuyển sang Rust bằng một lời gọi JNI. Rust giữ JavaVM và GlobalRef; mỗi worker attach vào JVM, dùng local frames và detach qua RAII. Không gọi hidden API, không dùng MethodChannel và không có Kotlin chứa logic app.
@@ -24,11 +25,17 @@ Application context được Android entry point chuyển sang Rust bằng một
 4. Kiểm tra package ID, đường dẫn `/data/app`, cùng thư mục APK và tên file an toàn. Chống trùng package và trùng tên split.
 5. Giữ lock ở `/data/adb/.sysleaf-lock`; tạo staging riêng ngoài thư mục modules. Kiểm tra dung lượng.
 6. So sánh danh sách `pm path --user 0` với inventory trước và sau khi copy. SHA-256 trước copy, trên bản sao và trên nguồn sau copy phải giống nhau.
-7. Copy native libraries, sinh module.prop và permission denial XML, đặt owner 0:0, mode 0755/0644 và SELinux `system_file`.
+7. Copy native libraries, sinh module.prop. App được catalog nhận diện là ngân hàng dùng `system/app/<package>`; app khác dùng `system/system_ext/priv-app/<package>` và permission denial XML. Đặt owner 0:0, mode 0755/0644 và SELinux `system_file`.
 8. Chỉ publish module sau khi toàn bộ selection đã stage thành công. EXIT/TERM trap dọn staging/lock và rollback các module vừa publish khi thao tác thất bại thông thường.
 9. Dùng boot ID để nhận biết module đang chờ restart. Chỉ hiển thị **Đã systemize** khi Android trả `ApplicationInfo.FLAG_SYSTEM`; sau boot mà flag vẫn chưa có thì hiển thị **Chưa được mount**.
 
 Gỡ module tạo marker `remove` cho manager xử lý ở lần boot sau; không uninstall app và không thay đổi dữ liệu riêng. Module của bên khác không bị thao tác.
+
+## Chuyển module ngân hàng cũ
+
+UI chỉ gửi danh sách package đã xem lại và xác nhận. API `migrate_banks` giữ mutation lock, đọc inventory/module mới và chỉ nhận module có marker SysLeaf, nhóm banking, đích cũ `/system_ext/priv-app`, chưa có marker `remove`. Script giữ filesystem lock, từ chối symlink, kiểm tra dung lượng, stage bản sao đầy đủ và so SHA-256 cả module/payload trước khi đổi đường dẫn. Marker `disable` được giữ; privileged denial XML của chính package được bỏ vì đích mới không phải priv-app.
+
+Trước publish, fingerprint module phải chưa đổi. Thư mục cũ được rename ra `.sysleaf-bank-backup-<token>` ngoài thư mục manager; thư mục mới vào đúng ID cũ. Lỗi thông thường khôi phục module cũ của cả batch. Bản sao cũ vẫn giữ inode cho overlay của boot hiện tại. `migration_pending_boot` buộc trạng thái chờ reboot dù app hiện có FLAG_SYSTEM. Sau boot khác, `service.sh` chỉ dọn bản sao của chính module khi tất cả APK mới so byte thành công với `/system/app/<package>`; module chưa mount/tắt giữ bản sao. Không tự chuyển module khi mở app.
 
 ## Disable và uninstall
 
@@ -48,8 +55,12 @@ Root commands được truyền qua stdin để batch lớn không vượt giớ
 
 Preferences được ghi bằng file tạm rồi rename trong Application files dir. FFI trả CString do Rust sở hữu; Dart luôn gọi `sysleaf_free` trong `finally`. Input do Dart sở hữu được giải phóng riêng.
 
+## App đã gỡ
+
+PackageManager được gọi với `MATCH_UNINSTALLED_PACKAGES`; `FLAG_INSTALLED` quyết định app còn cài cho user 0. Metadata app người dùng bị Android quên được giữ bằng inventory JSON cục bộ, cập nhật qua file tạm + rename dưới mutex. Package không còn xuất hiện được đánh dấu `installed=false`, không giữ trạng thái module cũ; trạng thái module được đọc lại từ root. Reinstall thay thế metadata cũ. App chưa từng được quan sát và không còn metadata Android không thể được truy lại. Filter/sort đã gỡ dùng dữ liệu này và không cho chọn root action lên app không còn cài.
+
 ## Mount và phân vùng
 
-Module chứa `system/system_ext/…`, theo quy ước của Magisk và scanner Hybrid Mount. Các tệp nguồn module ở `/data` có thể ghi; việc mount không yêu cầu remount-RW phân vùng system_ext vật lý. Hybrid Mount cần kernel/ROM có backend được hỗ trợ và cấu hình cho phép real mount. SysLeaf không sửa cấu hình toàn cục của Hybrid Mount, không nạp kernel module và không tắt SELinux.
+Module chứa `system/app/…` cho ngân hàng hoặc `system/system_ext/…` cho app khác, theo quy ước của Magisk và scanner Hybrid Mount. Các tệp nguồn module ở `/data` có thể ghi; việc mount không yêu cầu remount-RW phân vùng vật lý. Hybrid Mount cần kernel/ROM có backend được hỗ trợ và cấu hình cho phép real mount. SysLeaf không sửa cấu hình toàn cục của Hybrid Mount, không nạp kernel module và không tắt SELinux.
 
 APatch và VFS không nằm trong phạm vi hỗ trợ hiện tại. Ngân hàng/mạng xã hội là heuristic có thể cập nhật tại `rust/src/categories.rs`; thông tin nhóm không ảnh hưởng quyền Android.
