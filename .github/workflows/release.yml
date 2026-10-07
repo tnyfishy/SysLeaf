@@ -1,0 +1,76 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish
+        required: true
+        default: v0.2.0
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Check version and release draft
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version=$(awk '/^version:/ {print $2}' pubspec.yaml)
+          [[ "$RELEASE_TAG" == "v${version%%+*}" ]]
+          draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          [[ "$draft" == true ]]
+          echo "RELEASE_VERSION=${version%%+*}" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - run: cargo install cargo-ndk --version 4.1.2 --locked
+      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
+      - run: flutter pub get
+      - name: Build both APK variants with the same signing key
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          flutter build apk --release --target-platform android-arm64
+          cp build/app/outputs/flutter-apk/app-release.apk "release/sysleaf-$RELEASE_VERSION-arm64.apk"
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk "release/sysleaf-$RELEASE_VERSION-universal.apk"
+      - name: Verify and package release files
+        run: |
+          set -euo pipefail
+          for apk in release/*.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+          done
+          git archive --format=zip --prefix="SysLeaf-$RELEASE_VERSION/" -o "release/sysleaf-$RELEASE_VERSION-source.zip" HEAD
+          cp "artifacts/VALIDATION-$RELEASE_VERSION.md" release/
+          cd release
+          sha256sum ./*.apk ./*.zip ./*.md > SHA256SUMS.txt
+      - name: Upload assets and publish the prepared release
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" release/*.apk release/*.zip release/*.md release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+          count=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')
+          [[ "$count" -eq 5 ]]
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
