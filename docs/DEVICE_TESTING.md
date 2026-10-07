@@ -31,7 +31,29 @@ KernelSU app profile phải cho phép root của SysLeaf và không chặn truy 
 
 ## Khôi phục
 
-Trước hết tắt/gỡ đúng module **SysLeaf · tên ứng dụng** trong Magisk/KernelSU rồi reboot. Dữ liệu riêng và bản cài `/data/app` không bị SysLeaf xóa.
+### Disable/uninstall nhiều app
+
+1. Dùng app thử nghiệm, tránh app thiết yếu của hệ thống. Chuẩn bị ADB/root và ghi lại mã gói trước khi thao tác.
+2. Chọn chế độ **Vô hiệu hoá**, chọn hai app; cảnh báo phải liệt kê đúng tên, mã gói và trạng thái hệ thống. Chọn **Oh, chờ chút**, đóng bằng Back hoặc chạm ngoài: app phải còn bật, không có lệnh thay đổi.
+3. Xác nhận bằng **Được, cứ làm đi!**. Kiểm tra kết quả từng app, pill **Ứng dụng bị tắt**, và đối chiếu `pm list packages -d --user 0`. Tài khoản/data phải còn. Bật lại bằng `pm enable --user 0 <package>` rồi refresh.
+4. Chọn chế độ **Gỡ ứng dụng**, chọn hai app thử nghiệm (có thể có app đã disable). Kiểm tra cảnh báo bootloop, lưu ý xoá dữ liệu, danh sách review và hai lựa chọn huỷ/xác nhận. Sau xác nhận, app thành công biến mất khỏi danh sách cài cho user 0.
+5. Nếu có app bị DevicePolicyManager/ROM từ chối: kiểm tra batch vẫn tiếp tục, lỗi không được báo thành công, app thất bại còn được chọn. Thử mất quyền su/timeout và refresh lại để đối chiếu những thay đổi đã thực hiện.
+6. Với app hệ thống thử nghiệm còn APK được PackageManager nhận diện, khôi phục bằng `pm install-existing --user 0 <package>`; dữ liệu đã xoá không thể khôi phục bằng lệnh này. Với app người dùng đã gỡ, cài lại APK khi cần.
+7. Xác nhận không ảnh hưởng hồ sơ khác; gỡ app đã systemize không xoá module. Nếu muốn bỏ overlay, dùng **Gỡ module** trước khi gỡ ứng dụng, hoặc gỡ module `sysleaf_<package>` trong Magisk/KernelSU sau đó, rồi reboot.
+8. Thử hai chế độ với thiếu/tắt Hybrid Mount: disable/uninstall vẫn hoạt động khi có root. Thử cảnh báo Anh/Việt trên màn hình 320×640 có insets và phóng to chữ.
+
+Các lệnh khôi phục qua ADB (thay package thật):
+
+```bash
+adb shell su -c 'pm enable --user 0 com.example.app'
+adb shell su -c 'pm install-existing --user 0 com.example.app'
+```
+
+Chỉ thực hiện khi thiết bị vẫn boot được và có quyền cần thiết. Nếu không boot được sau disable/uninstall app hệ thống, tắt module chưa chắc khôi phục được trạng thái PackageManager; dùng recovery/khôi phục ROM theo hướng dẫn thiết bị và bản sao lưu đã chuẩn bị.
+
+### Gỡ module
+
+Trước hết tắt/gỡ đúng module **SysLeaf · tên ứng dụng** trong Magisk/KernelSU rồi reboot. Riêng thao tác systemize/gỡ module giữ dữ liệu riêng và bản cài `/data/app`; thao tác **Gỡ ứng dụng** có thể đã xoá dữ liệu cho user 0.
 
 Nếu thao tác bị ngắt và app báo **OPERATION_BUSY** dù đã reboot, lock cũ có thể còn tồn tại. Chỉ sau khi reboot và khi không có thao tác SysLeaf đang chạy, có thể dọn lock rỗng bằng:
 
@@ -40,4 +62,3 @@ adb shell su -c 'rmdir /data/adb/.sysleaf-lock'
 ```
 
 Nếu máy không boot vào Android, dùng cơ chế tắt module/recovery của trình quản lý root đang dùng. Các module cần loại bỏ có ID bắt đầu `sysleaf_`; không cần xóa `/data/user`, `/data/user_de` hoặc `/data/app` để gỡ systemize.
-

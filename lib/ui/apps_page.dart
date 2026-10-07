@@ -29,6 +29,31 @@ class _AppsPageState extends State<AppsPage> {
     );
     return Column(
       children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Row(
+            children: [
+              for (final action in AppAction.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    key: ValueKey('mode-${action.name}'),
+                    selected: controller.appAction == action,
+                    avatar: Icon(switch (action) {
+                      AppAction.systemize => Icons.auto_awesome_rounded,
+                      AppAction.disable => Icons.block_rounded,
+                      AppAction.uninstall => Icons.delete_outline_rounded,
+                    }, size: 18),
+                    label: Text(s.t(action.name)),
+                    onSelected: controller.busy || controller.refreshing
+                        ? null
+                        : (_) => controller.setAppAction(action),
+                  ),
+                ),
+            ],
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
           child: TextField(
@@ -140,7 +165,8 @@ class _AppsPageState extends State<AppsPage> {
             padding: const EdgeInsets.fromLTRB(20, 2, 20, 10),
             child: ErrorCard(code: controller.errorCode!, strings: s),
           ),
-        if (controller.environment?.canSystemize == false)
+        if (controller.appAction == AppAction.systemize &&
+            controller.environment?.canSystemize == false)
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 2, 20, 10),
             child: ErrorCard(code: controller.environment!.reason, strings: s),
@@ -189,7 +215,11 @@ class _AppsPageState extends State<AppsPage> {
                   margin: const EdgeInsets.fromLTRB(20, 4, 20, 14),
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
                   decoration: BoxDecoration(
-                    color: c.primaryContainer.withValues(alpha: .55),
+                    color:
+                        (controller.appAction == AppAction.systemize
+                                ? c.primaryContainer
+                                : c.errorContainer)
+                            .withValues(alpha: .55),
                     borderRadius: BorderRadius.circular(24),
                   ),
                   child: Column(
@@ -221,17 +251,32 @@ class _AppsPageState extends State<AppsPage> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
+                          key: const ValueKey('apply-selection'),
                           onPressed:
-                              controller.environment?.canSystemize == true &&
+                              (controller.appAction != AppAction.systemize ||
+                                      controller.environment?.canSystemize ==
+                                          true) &&
                                   !controller.busy &&
                                   !controller.refreshing
-                              ? () => confirmSystemize(context, controller)
+                              ? () =>
+                                    controller.appAction == AppAction.systemize
+                                    ? confirmSystemize(context, controller)
+                                    : confirmAppManagement(context, controller)
                               : null,
-                          icon: const Icon(
-                            Icons.auto_awesome_rounded,
-                            size: 18,
+                          style: controller.appAction == AppAction.systemize
+                              ? null
+                              : FilledButton.styleFrom(
+                                  backgroundColor: c.error,
+                                  foregroundColor: c.onError,
+                                ),
+                          icon: Icon(switch (controller.appAction) {
+                            AppAction.systemize => Icons.auto_awesome_rounded,
+                            AppAction.disable => Icons.block_rounded,
+                            AppAction.uninstall => Icons.delete_outline_rounded,
+                          }, size: 18),
+                          label: Text(
+                            '${s.t(controller.appAction.name)} (${controller.selected.length})',
                           ),
-                          label: Text(s.t('systemize')),
                         ),
                       ),
                     ],
@@ -284,7 +329,11 @@ class _AppsPageState extends State<AppsPage> {
                   child: Builder(
                     builder: (context) {
                       final count = controller.apps
-                          .where((a) => a.eligible && a.category == category)
+                          .where(
+                            (a) =>
+                                a.selectableFor(controller.appAction) &&
+                                a.category == category,
+                          )
                           .length;
                       return Card(
                         color: Theme.of(context).colorScheme.surfaceContainer,
@@ -349,8 +398,6 @@ class _AppRow extends StatelessWidget {
         ? app.moduleState
         : app.system
         ? 'stock_system'
-        : !app.enabled
-        ? 'not_enabled'
         : '';
     return RepaintBoundary(
       child: AnimatedContainer(
@@ -371,7 +418,9 @@ class _AppRow extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(20),
-            onTap: app.eligible ? () => controller.toggle(app) : null,
+            onTap: app.selectableFor(controller.appAction)
+                ? () => controller.toggle(app)
+                : null,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(13, 13, 6, 13),
               child: Row(
@@ -401,29 +450,42 @@ class _AppRow extends StatelessWidget {
                             color: c.onSurfaceVariant,
                           ),
                         ),
-                        if (status.isNotEmpty) ...[
+                        if (status.isNotEmpty || !app.enabled) ...[
                           const SizedBox(height: 7),
-                          StatusPill(
-                            strings.t(status),
-                            warning: app.pending || status == 'mount_failed',
-                            neutral: !app.managed,
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              if (status.isNotEmpty)
+                                StatusPill(
+                                  strings.t(status),
+                                  warning:
+                                      app.pending || status == 'mount_failed',
+                                  neutral: !app.managed,
+                                ),
+                              if (!app.enabled)
+                                StatusPill(
+                                  strings.t('not_enabled'),
+                                  warning: true,
+                                ),
+                            ],
                           ),
                         ],
                       ],
                     ),
                   ),
                   const SizedBox(width: 2),
-                  if (app.eligible)
+                  if (app.selectableFor(controller.appAction))
                     Checkbox(
                       value: selected,
-                      onChanged: controller.busy
+                      onChanged: controller.busy || controller.refreshing
                           ? null
                           : (_) => controller.toggle(app),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(5),
                       ),
-                    )
-                  else if (app.managed && app.moduleState != 'removing')
+                    ),
+                  if (app.managed && app.moduleState != 'removing')
                     PopupMenuButton<String>(
                       tooltip: strings.t('remove'),
                       icon: const Icon(Icons.more_vert_rounded, size: 21),
@@ -443,7 +505,7 @@ class _AppRow extends StatelessWidget {
                         ),
                       ],
                     )
-                  else
+                  else if (!app.selectableFor(controller.appAction))
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       child: Icon(

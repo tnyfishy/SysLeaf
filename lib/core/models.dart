@@ -4,6 +4,34 @@ enum AppSort { name, systemized, social, banking }
 
 enum Appearance { system, light, dark, black }
 
+enum AppAction { systemize, disable, uninstall }
+
+class AppOutcome {
+  const AppOutcome({
+    required this.package,
+    required this.success,
+    required this.detail,
+  });
+  final String package, detail;
+  final bool success;
+  factory AppOutcome.fromJson(Map<String, dynamic> json) => AppOutcome(
+    package: json['package'] as String,
+    success: json['success'] == true,
+    detail: json['detail'] as String? ?? '',
+  );
+}
+
+class BatchResult {
+  const BatchResult(this.results);
+  final List<AppOutcome> results;
+  int get succeeded => results.where((r) => r.success).length;
+  factory BatchResult.fromJson(Map<String, dynamic> json) => BatchResult(
+    (json['results'] as List)
+        .map((r) => AppOutcome.fromJson(r as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
 class Preferences {
   const Preferences({
     this.language = 'vi',
@@ -78,6 +106,15 @@ class InstalledApp {
       uid ~/ 100000 == 0 &&
       package != 'dev.sysleaf.sysleaf';
   bool get pending => moduleState == 'pending' || moduleState == 'removing';
+  bool selectableFor(AppAction action) => switch (action) {
+    AppAction.systemize => eligible,
+    AppAction.disable => manageable && enabled,
+    AppAction.uninstall => manageable,
+  };
+  bool get manageable =>
+      uid ~/ 100000 == 0 &&
+      package != 'android' &&
+      package != 'dev.sysleaf.sysleaf';
   factory InstalledApp.fromJson(Map<String, dynamic> json) => InstalledApp(
     package: json['package'] as String,
     name: json['name'] as String,

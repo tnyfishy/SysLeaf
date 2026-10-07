@@ -7,6 +7,40 @@ class Strings {
   }
 
   static const Map<String, List<String>> _text = {
+    'disable': ['Vô hiệu hoá', 'Disable'],
+    'uninstall': ['Gỡ ứng dụng', 'Uninstall'],
+    'disabling_work': ['Đang vô hiệu hoá ứng dụng…', 'Disabling apps…'],
+    'uninstalling_work': ['Đang gỡ ứng dụng…', 'Uninstalling apps…'],
+    'disable_question': [
+      'Vô hiệu hoá các ứng dụng này?',
+      'Disable these apps?',
+    ],
+    'uninstall_question': ['Gỡ các ứng dụng này?', 'Uninstall these apps?'],
+    'disable_warning': [
+      'Hãy chắc chắn rằng bạn biết mình đang làm gì. Vô hiệu hoá ứng dụng hệ thống có thể khiến thiết bị hoạt động không đúng cách và có thể gây ra bootloop. Bạn chắc chắn chứ?',
+      'Make sure you know what you are doing. Disabling system apps may cause the device to malfunction and may cause a bootloop. Are you sure?',
+    ],
+    'uninstall_warning': [
+      'Hãy chắc chắn rằng bạn biết mình đang làm gì. Gỡ bỏ ứng dụng hệ thống có thể khiến thiết bị hoạt động không đúng cách và có thể gây ra bootloop. Bạn chắc chắn chứ?',
+      'Make sure you know what you are doing. Uninstalling system apps may cause the device to malfunction and may cause a bootloop. Are you sure?',
+    ],
+    'disable_note': [
+      'Áp dụng cho hồ sơ chủ thiết bị (user 0). Dữ liệu ứng dụng được giữ lại. Có thể bật lại qua ADB/root bằng pm enable --user 0 <mã gói>.',
+      'Applies to the device owner profile (user 0). App data is retained. Restore with ADB/root using pm enable --user 0 <package>.',
+    ],
+    'uninstall_note': [
+      'Gỡ cho hồ sơ chủ thiết bị (user 0) và xoá dữ liệu của ứng dụng trong hồ sơ này. APK hệ thống và module SysLeaf vẫn được giữ; gỡ module là thao tác riêng.',
+      'Uninstalls for the device owner profile (user 0) and deletes app data in this profile. System APKs and SysLeaf modules are retained; module removal is a separate action.',
+    ],
+    'danger_yes': ['Được, cứ làm đi!', 'Yes, go ahead!'],
+    'danger_no': ['Oh, chờ chút', 'Oh, wait a moment'],
+    'batch_title': ['Kết quả thao tác', 'Operation results'],
+    'batch_succeeded': ['thành công', 'succeeded'],
+    'batch_failed': ['không thành công', 'failed'],
+    'batch_note': [
+      'Mỗi ứng dụng được xử lý riêng. Các thay đổi thành công đã được áp dụng; ứng dụng thất bại vẫn được chọn để bạn xem lại.',
+      'Each app is processed separately. Successful changes have been applied; failed apps stay selected for review.',
+    ],
     'removing_work': ['Đang lên lịch gỡ module…', 'Scheduling module removal…'],
     'rebooting': ['Đang khởi động lại…', 'Restarting…'],
     'busy_desc': [
@@ -223,8 +257,8 @@ class Strings {
       'Could not apply SELinux labels. The modules have not been applied.',
     ],
     'err_TIMEOUT': [
-      'Thao tác su đã hết thời gian chờ. Làm mới danh sách và kiểm tra trình quản lý module trước khi thử lại.',
-      'The su operation timed out. Refresh and check your module manager before retrying.',
+      'Thao tác su đã hết thời gian chờ. Làm mới và kiểm tra trạng thái ứng dụng/module trước khi thử lại; một số thay đổi có thể đã được áp dụng.',
+      'The su operation timed out. Refresh and check app/module status before retrying; some changes may already have been applied.',
     ],
     'err_default': [
       'Thao tác chưa hoàn tất. Bạn có thể làm mới và thử lại.',

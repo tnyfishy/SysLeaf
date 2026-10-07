@@ -1,5 +1,6 @@
 #[cfg(target_os = "android")]
 mod android;
+mod app_management;
 #[cfg(any(target_os = "android", test))]
 mod categories;
 mod error;
@@ -73,6 +74,21 @@ fn dispatch(request: Value) -> Result<Value> {
                 serde_json::from_value(request.get("packages").cloned().unwrap_or(Value::Null))?;
             let apps = inventory()?;
             Ok(serde_json::to_value(modules::install(&packages, &apps)?)?)
+        }
+        "disable_apps" | "uninstall_apps" => {
+            let _guard = MUTATION_LOCK
+                .try_lock()
+                .map_err(|_| CoreError::new("OPERATION_BUSY", "Another operation is running."))?;
+            let packages: Vec<String> =
+                serde_json::from_value(request.get("packages").cloned().unwrap_or(Value::Null))?;
+            let action = if action == "disable_apps" {
+                app_management::Action::Disable
+            } else {
+                app_management::Action::Uninstall
+            };
+            Ok(serde_json::to_value(app_management::apply(
+                &packages, action,
+            )?)?)
         }
         "remove" => {
             let _guard = MUTATION_LOCK

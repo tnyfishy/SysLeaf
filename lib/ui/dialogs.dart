@@ -245,3 +245,205 @@ Future<void> confirmRemove(
   }
   await showSuccess(context, controller);
 }
+
+Future<void> confirmAppManagement(
+  BuildContext context,
+  AppController controller,
+) async {
+  final action = controller.appAction;
+  if (action == AppAction.systemize) return;
+  final apps = List<InstalledApp>.unmodifiable(controller.selectedApps);
+  if (apps.isEmpty) return;
+  final s = Strings(controller.preferences.language);
+  final c = Theme.of(context).colorScheme;
+  final accepted = await softDialog<bool>(
+    context,
+    AlertDialog(
+      icon: Icon(Icons.warning_amber_rounded, color: c.error, size: 36),
+      title: Text(s.t('${action.name}_question')),
+      content: SizedBox(
+        width: 400,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .52,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.t('${action.name}_warning'),
+                  style: TextStyle(color: c.error, height: 1.5),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '${apps.length} ${s.t('selected')}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                for (final app in apps)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Row(
+                      children: [
+                        AppIcon(app: app, controller: controller, size: 36),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                app.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                app.package,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: c.onSurfaceVariant,
+                                ),
+                              ),
+                              if (app.systemized) ...[
+                                const SizedBox(height: 4),
+                                StatusPill(
+                                  s.t(app.managed ? 'managed' : 'stock_system'),
+                                  warning: true,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Text(
+                  s.t('${action.name}_note'),
+                  style: TextStyle(fontSize: 12, color: c.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(s.t('danger_no')),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: c.error,
+            foregroundColor: c.onError,
+          ),
+          onPressed: () => Navigator.pop(context, true),
+          child: Text(s.t('danger_yes')),
+        ),
+      ],
+    ),
+  );
+  if (accepted != true || !context.mounted) return;
+  // Send exactly the immutable list shown in the warning, even if selection
+  // changed while the dialog was open.
+  final result = await controller.manageApps(action, apps);
+  if (!context.mounted) return;
+  if (result == null) {
+    await showFailure(context, controller);
+    return;
+  }
+  await softDialog<void>(
+    context,
+    AlertDialog(
+      title: Text('${s.t(action.name)} · ${s.t('batch_title')}'),
+      content: SizedBox(
+        width: 400,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .52,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${result.succeeded}/${result.results.length} ${s.t('batch_succeeded')}',
+                ),
+                const SizedBox(height: 12),
+                Text(s.t('batch_note'), style: const TextStyle(fontSize: 12)),
+                const SizedBox(height: 16),
+                for (final outcome in result.results)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          outcome.success
+                              ? Icons.check_circle_outline_rounded
+                              : Icons.error_outline_rounded,
+                          color: outcome.success ? c.primary : c.error,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                apps
+                                    .firstWhere(
+                                      (a) => a.package == outcome.package,
+                                    )
+                                    .name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                outcome.package,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: c.onSurfaceVariant,
+                                ),
+                              ),
+                              Text(
+                                s.t(
+                                  outcome.success
+                                      ? 'batch_succeeded'
+                                      : 'batch_failed',
+                                ),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: outcome.success ? c.primary : c.error,
+                                ),
+                              ),
+                              if (!outcome.success) ...[
+                                const SizedBox(height: 8),
+                                SelectableText(
+                                  outcome.detail,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(s.t('close')),
+        ),
+      ],
+    ),
+  );
+}

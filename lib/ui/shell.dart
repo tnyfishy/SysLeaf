@@ -234,6 +234,8 @@ class _AppShellState extends State<AppShell>
                                   s.t(switch (controller.operation) {
                                     'remove' => 'removing_work',
                                     'reboot' => 'rebooting',
+                                    'disable_apps' => 'disabling_work',
+                                    'uninstall_apps' => 'uninstalling_work',
                                     _ => 'installing',
                                   }),
                                   textAlign: TextAlign.center,

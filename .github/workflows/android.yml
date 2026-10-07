@@ -12,6 +12,9 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          # The obsolete 'tools' package is no longer in Google's repository.
+          packages: platform-tools
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.4'

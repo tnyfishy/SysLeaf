@@ -77,6 +77,98 @@ void main() {
     expect(controller.selected, isEmpty);
   });
   test(
+    'management includes system apps and clears selection on mode change',
+    () async {
+      final controller = AppController(FakeBackend());
+      await controller.initialize();
+      controller.selectCategory('banking');
+      controller.setAppAction(AppAction.disable);
+      expect(controller.selected, isEmpty);
+      final system = controller.apps.firstWhere(
+        (a) => a.package == 'com.android.settings',
+      );
+      controller.toggle(system);
+      expect(controller.selected, {'com.android.settings'});
+      expect(await controller.installSelected(), false);
+      controller.setAppAction(AppAction.uninstall);
+      expect(controller.selected, isEmpty);
+      final self = InstalledApp.fromJson(
+        FakeBackend.app('dev.sysleaf.sysleaf', 'SysLeaf'),
+      );
+      controller.toggle(self);
+      expect(controller.selected, isEmpty);
+    },
+  );
+  test('root is required for disabling and uninstalling', () async {
+    final backend = FakeBackend()..rootAllowed = false;
+    final controller = AppController(backend);
+    await controller.initialize();
+    final apps = [InstalledApp.fromJson(backend.apps.first)];
+    for (final action in [AppAction.disable, AppAction.uninstall]) {
+      expect(await controller.manageApps(action, apps), isNull);
+    }
+    expect(backend.calls, isNot(contains('disable_apps')));
+    expect(backend.calls, isNot(contains('uninstall_apps')));
+  });
+  test(
+    'partial failures stay selected and management needs no mount engine',
+    () async {
+      final backend = FakeBackend()..canSystemize = false;
+      backend.failedPackages.add('com.mbmobile');
+      final controller = AppController(backend);
+      await controller.initialize();
+      controller.setAppAction(AppAction.disable);
+      controller.selectCategory('banking');
+      final result = await controller.manageApps(
+        AppAction.disable,
+        controller.selectedApps,
+      );
+      expect(result!.succeeded, 1);
+      expect(controller.selected, {'com.mbmobile'});
+      expect(
+        controller.apps
+            .firstWhere((a) => a.package == 'com.vietcombank.vcbmobile')
+            .enabled,
+        false,
+      );
+      controller.setAppAction(AppAction.uninstall);
+      final disabled = controller.apps.firstWhere(
+        (a) => a.package == 'com.vietcombank.vcbmobile',
+      );
+      controller.toggle(disabled);
+      expect(
+        (await controller.manageApps(
+          AppAction.uninstall,
+          controller.selectedApps,
+        ))!.succeeded,
+        1,
+      );
+      expect(controller.apps.any((a) => a.package == disabled.package), false);
+      expect(controller.selected, isEmpty);
+    },
+  );
+  test(
+    'timeout refreshes partially changed state and keeps the error visible',
+    () async {
+      final backend = FakeBackend()..failManagement = true;
+      final controller = AppController(backend);
+      await controller.initialize();
+      controller.setAppAction(AppAction.disable);
+      controller.selectCategory('banking');
+      expect(
+        await controller.manageApps(AppAction.disable, controller.selectedApps),
+        isNull,
+      );
+      expect(controller.errorCode, 'TIMEOUT');
+      expect(
+        controller.apps.firstWhere((a) => a.package == 'com.mbmobile').enabled,
+        false,
+      );
+      expect(controller.selected, {'com.vietcombank.vcbmobile'});
+      expect(controller.busy, false);
+    },
+  );
+  test(
     'defaults are Vietnamese and follow system, invalid preferences recover',
     () {
       expect(const Preferences().language, 'vi');

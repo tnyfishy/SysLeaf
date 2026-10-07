@@ -10,6 +10,7 @@ class AppController extends ChangeNotifier {
   DeviceEnvironment? environment;
   List<InstalledApp> apps = [];
   final Set<String> selected = {};
+  AppAction appAction = AppAction.systemize;
   final Map<String, Future<Uint8List?>> _icons = {};
   bool loading = true, refreshing = false, busy = false, saving = false;
   String? errorCode, errorDetail;
@@ -65,7 +66,9 @@ class AppController extends ChangeNotifier {
           .map((a) => InstalledApp.fromJson(a as Map<String, dynamic>))
           .toList();
       selected.removeWhere(
-        (package) => !apps.any((a) => a.package == package && a.eligible),
+        (package) => !apps.any(
+          (a) => a.package == package && a.selectableFor(appAction),
+        ),
       );
     } catch (error) {
       _error(error);
@@ -75,7 +78,7 @@ class AppController extends ChangeNotifier {
   }
 
   void toggle(InstalledApp app) {
-    if (!app.eligible || busy) return;
+    if (!rooted || !app.selectableFor(appAction) || busy || refreshing) return;
     if (!selected.remove(app.package)) {
       if (selected.length >= 100) {
         errorCode = 'INVALID_SELECTION';
@@ -88,8 +91,10 @@ class AppController extends ChangeNotifier {
   }
 
   void selectCategory(String category) {
-    if (busy) return;
-    for (final app in apps.where((a) => a.eligible && a.category == category)) {
+    if (!rooted || busy || refreshing) return;
+    for (final app in apps.where(
+      (a) => a.selectableFor(appAction) && a.category == category,
+    )) {
       if (selected.length == 100) break;
       selected.add(app.package);
     }
@@ -104,7 +109,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> installSelected() async {
-    if (busy || selected.isEmpty || environment?.canSystemize != true) {
+    if (appAction != AppAction.systemize ||
+        busy ||
+        selected.isEmpty ||
+        environment?.canSystemize != true) {
       return false;
     }
     return _mutate('install', {'packages': selected.toList()}, clear: true);
@@ -112,6 +120,65 @@ class AppController extends ChangeNotifier {
 
   Future<bool> removeModule(InstalledApp app) =>
       _mutate('remove', {'package': app.package});
+
+  void setAppAction(AppAction action) {
+    if (busy || refreshing || action == appAction) return;
+    appAction = action;
+    selected.clear();
+    notifyListeners();
+  }
+
+  Future<BatchResult?> manageApps(
+    AppAction action,
+    List<InstalledApp> reviewed,
+  ) async {
+    if (action == AppAction.systemize ||
+        busy ||
+        refreshing ||
+        !rooted ||
+        reviewed.isEmpty) {
+      return null;
+    }
+    final packages = reviewed.map((a) => a.package).toList();
+    if (packages.length > 100 ||
+        packages.toSet().length != packages.length ||
+        packages.any(
+          (p) => !apps.any((a) => a.package == p && a.selectableFor(action)),
+        )) {
+      errorCode = 'APP_CHANGED';
+      errorDetail = null;
+      notifyListeners();
+      return null;
+    }
+    operation = '${action.name}_apps';
+    busy = true;
+    errorCode = null;
+    errorDetail = null;
+    notifyListeners();
+    BatchResult? result;
+    try {
+      result = BatchResult.fromJson(
+        await backend.call(operation, {'packages': packages})
+            as Map<String, dynamic>,
+      );
+      selected.removeAll(
+        result.results.where((r) => r.success).map((r) => r.package),
+      );
+    } catch (error) {
+      _error(error);
+    }
+    busy = false;
+    // A batch can partially succeed or time out. Refresh even after an error,
+    // preserving that error separately so the user can inspect what happened.
+    final failureCode = errorCode, failureDetail = errorDetail;
+    await refresh();
+    if (failureCode != null && errorCode == null) {
+      errorCode = failureCode;
+      errorDetail = failureDetail;
+    }
+    notifyListeners();
+    return result;
+  }
 
   Future<bool> _mutate(
     String action,

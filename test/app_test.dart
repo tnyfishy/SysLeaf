@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sysleaf/core/controller.dart';
 import 'package:sysleaf/core/models.dart';
 import 'package:sysleaf/main.dart';
+import 'package:sysleaf/l10n/strings.dart';
 import 'support/fake_backend.dart';
 
 Future<void> setup(
@@ -80,7 +81,7 @@ void main() {
     await tester.tap(find.text('Ngân hàng').last);
     await tester.pumpAndSettle();
     expect(controller.selected.length, 2);
-    await tester.tap(find.text('Systemize'));
+    await tester.tap(find.byKey(const ValueKey('apply-selection')));
     await tester.pumpAndSettle();
     expect(
       find.text(
@@ -91,7 +92,7 @@ void main() {
     await tester.tap(find.text('Khoan đã😐'));
     await tester.pumpAndSettle();
     expect(backend.calls, isNot(contains('install')));
-    await tester.tap(find.text('Systemize'));
+    await tester.tap(find.byKey(const ValueKey('apply-selection')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Vâng!😋'));
     await tester.pumpAndSettle();
@@ -115,6 +116,110 @@ void main() {
     await tester.tap(find.text('Khởi động lại'));
     await tester.pumpAndSettle();
     expect(backend.calls, contains('reboot'));
+  });
+
+  for (final action in [AppAction.disable, AppAction.uninstall]) {
+    testWidgets(
+      '${action.name} reviews multiple apps and requires explicit consent on a compact screen',
+      (tester) async {
+        final backend = FakeBackend();
+        final controller = AppController(backend);
+        final capture = GlobalKey();
+        await setup(
+          tester,
+          controller,
+          size: const Size(320, 640),
+          capture: capture,
+        );
+        await tester.tap(find.text('Ứng dụng'));
+        await tester.pumpAndSettle();
+        final mode = find.byKey(ValueKey('mode-${action.name}'));
+        await tester.ensureVisible(mode);
+        await tester.tap(mode);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cài đặt Android'));
+        controller.toggle(
+          controller.apps.firstWhere((a) => a.package == 'com.mbmobile'),
+        );
+        await tester.pumpAndSettle();
+        expect(controller.selected.length, 2);
+        await tester.tap(find.byKey(const ValueKey('apply-selection')));
+        await tester.pumpAndSettle();
+        final dialog = find.byType(AlertDialog);
+        expect(
+          find.descendant(
+            of: dialog,
+            matching: find.text('com.android.settings'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: dialog, matching: find.text('com.mbmobile')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(Strings('vi').t('${action.name}_warning')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await capturePreview(tester, capture, '${action.name}_warning_vi');
+        await tester.tap(find.text('Oh, chờ chút'));
+        await tester.pumpAndSettle();
+        expect(backend.calls, isNot(contains('${action.name}_apps')));
+        expect(controller.selected.length, 2);
+        await tester.tap(find.byKey(const ValueKey('apply-selection')));
+        await tester.pumpAndSettle();
+        // Changing the underlying selection must not silently change the list
+        // accepted by the user in an already open warning.
+        controller.toggle(
+          controller.apps.firstWhere((a) => a.package == 'com.zing.zalo'),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Được, cứ làm đi!'));
+        await tester.pumpAndSettle();
+        expect(backend.lastManagementArgs!['packages'], [
+          'com.android.settings',
+          'com.mbmobile',
+        ]);
+        expect(
+          backend.calls.where((a) => a == '${action.name}_apps').length,
+          1,
+        );
+        expect(find.text('2/2 thành công'), findsOneWidget);
+        expect(controller.selected, {'com.zing.zalo'});
+        await tester.tap(find.text('Đóng'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('English uninstall warning reports partial failures', (
+    tester,
+  ) async {
+    final backend = FakeBackend()
+      ..preferences = {'language': 'en', 'theme': 'dark'};
+    backend.failedPackages.add('com.mbmobile');
+    final controller = AppController(backend);
+    await setup(tester, controller);
+    await tester.tap(find.text('Apps'));
+    await tester.pumpAndSettle();
+    controller.setAppAction(AppAction.uninstall);
+    controller.selectCategory('banking');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('apply-selection')));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings('en').t('uninstall_warning')), findsOneWidget);
+    expect(find.text('Oh, wait a moment'), findsOneWidget);
+    await tester.tap(find.text('Yes, go ahead!'));
+    await tester.pumpAndSettle();
+    expect(find.text('1/2 succeeded'), findsOneWidget);
+    expect(
+      find.text('Failure [DELETE_FAILED_DEVICE_POLICY_MANAGER]'),
+      findsOneWidget,
+    );
+    expect(controller.selected, {'com.mbmobile'});
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('language and pure black theme persist across tabs', (

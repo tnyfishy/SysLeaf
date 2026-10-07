@@ -30,6 +30,16 @@ Application context được Android entry point chuyển sang Rust bằng một
 
 Gỡ module tạo marker `remove` cho manager xử lý ở lần boot sau; không uninstall app và không thay đổi dữ liệu riêng. Module của bên khác không bị thao tác.
 
+## Disable và uninstall
+
+UI có `AppAction` riêng cho systemize/disable/uninstall. Đổi chế độ xoá selection; tính đủ điều kiện dựa vào chế độ. Hai thao tác quản lý nhận app hệ thống/người dùng ở user 0, không nhận SysLeaf hoặc gói framework `android`. Chế độ disable chỉ nhận app đang bật; uninstall nhận cả app đã tắt.
+
+Hộp thoại giữ bản chụp bất biến của danh sách được xem lại và truyền đúng các package ID đó sau khi xác nhận. Hai API FFI `disable_apps`/`uninstall_apps` giữ `MUTATION_LOCK`, yêu cầu root và đọc inventory mới trực tiếp bằng JNI; không phụ thuộc kiểm tra Hybrid Mount. Rust kiểm tra giới hạn 1–100, trùng package, user profile và trạng thái trước khi dựng shell script.
+
+Shell giữ lock `/data/adb/.sysleaf-lock`, kiểm tra tất cả package vẫn được cài cho user 0 trước thao tác đầu tiên. Từng package được kiểm tra lại, rồi chạy `pm disable-user --user 0` hoặc `pm uninstall --user 0`. Kết quả được xác minh bằng danh sách package disabled/installed. Uninstall phải trả exit thành công, dòng `Success` và package không còn cài cho user 0; lỗi truy vấn không được coi là đã gỡ. Không gọi `rm` lên APK, dữ liệu riêng hay module và không gỡ cho mọi hồ sơ.
+
+Mỗi kết quả gồm package, boolean success và chi tiết giới hạn 4096 byte (mã hoá base64 trong giao thức shell để giữ newline an toàn). Rust kiểm tra đủ/sắp đúng kết quả trước khi trả JSON. UI làm mới inventory cả khi timeout/lỗi, giữ lựa chọn thất bại còn đủ điều kiện và báo riêng kết quả từng app. Đây là batch xử lý độc lập, không có rollback; disable giữ data nhưng uninstall dùng hành vi xoá data của Android.
+
 ## Phạm vi giao dịch
 
 Mỗi module được stage đầy đủ trước khi chuyển vào thư mục manager. Rollback xử lý lỗi shell thông thường; mất nguồn/SIGKILL ở mức kernel giữa các lần publish không thể bảo đảm atomic cho toàn bộ batch. Sau sự cố, kiểm tra module trong manager trước khi chạy lại. Root shell có timeout để trap được chạy khi hết thời gian; nếu ROM không có toybox timeout, parent process vẫn có giới hạn chờ nhưng trạng thái cuối phải được kiểm tra lại.
@@ -43,4 +53,3 @@ Preferences được ghi bằng file tạm rồi rename trong Application files 
 Module chứa `system/system_ext/…`, theo quy ước của Magisk và scanner Hybrid Mount. Các tệp nguồn module ở `/data` có thể ghi; việc mount không yêu cầu remount-RW phân vùng system_ext vật lý. Hybrid Mount cần kernel/ROM có backend được hỗ trợ và cấu hình cho phép real mount. SysLeaf không sửa cấu hình toàn cục của Hybrid Mount, không nạp kernel module và không tắt SELinux.
 
 APatch và VFS không nằm trong phạm vi hỗ trợ hiện tại. Ngân hàng/mạng xã hội là heuristic có thể cập nhật tại `rust/src/categories.rs`; thông tin nhóm không ảnh hưởng quyền Android.
-

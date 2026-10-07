@@ -4,6 +4,10 @@ import 'package:sysleaf/core/backend.dart';
 class FakeBackend implements Backend {
   bool rootAllowed = true;
   bool failInstall = false;
+  bool canSystemize = true;
+  bool failManagement = false;
+  final Set<String> failedPackages = {};
+  Map<String, dynamic>? lastManagementArgs;
   final List<String> calls = [];
   Map<String, dynamic> preferences = {'language': 'vi', 'theme': 'light'};
   final List<Map<String, dynamic>> apps = [
@@ -22,13 +26,14 @@ class FakeBackend implements Backend {
     String category = 'other',
     String state = '',
     bool system = false,
+    bool enabled = true,
   }) => {
     'package': package,
     'name': name,
     'category': category,
     'module_state': state,
     'system': system,
-    'enabled': true,
+    'enabled': enabled,
     'uid': 10001,
     'version': '1.0',
   };
@@ -53,7 +58,7 @@ class FakeBackend implements Backend {
           'manager': 'KernelSU',
           'hybrid_installed': true,
           'hybrid_ready': true,
-          'can_systemize': true,
+          'can_systemize': canSystemize,
           'reason': '',
           'device': 'Pixel 8 Pro',
           'android_sdk': '35',
@@ -84,6 +89,35 @@ class FakeBackend implements Backend {
           'packages': [args['package']],
           'reboot_required': true,
         };
+      case 'disable_apps':
+      case 'uninstall_apps':
+        lastManagementArgs = args;
+        if (failManagement) {
+          apps.firstWhere(
+            (a) => a['package'] == (args['packages'] as List).first,
+          )['enabled'] = false;
+          throw const BackendException('TIMEOUT', 'Operation interrupted');
+        }
+        final results = <Map<String, dynamic>>[];
+        for (final package in args['packages'] as List) {
+          final success = !failedPackages.contains(package);
+          if (success) {
+            if (action == 'disable_apps') {
+              apps.firstWhere((a) => a['package'] == package)['enabled'] =
+                  false;
+            } else {
+              apps.removeWhere((a) => a['package'] == package);
+            }
+          }
+          results.add({
+            'package': package,
+            'success': success,
+            'detail': success
+                ? 'Success'
+                : 'Failure [DELETE_FAILED_DEVICE_POLICY_MANAGER]',
+          });
+        }
+        return {'user_id': 0, 'results': results};
       case 'reboot':
         return true;
       case 'open_hybrid':

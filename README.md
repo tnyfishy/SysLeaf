@@ -13,6 +13,27 @@
 
 Module đang tắt, chờ gỡ hoặc chưa mount được có trạng thái riêng. Menu cạnh app do SysLeaf quản lý cho phép **Gỡ module**; thao tác này áp dụng sau khi khởi động lại.
 
+## Vô hiệu hoá hoặc gỡ nhiều ứng dụng
+
+Trong tab **Ứng dụng**, chọn chế độ **Vô hiệu hoá** hoặc **Gỡ ứng dụng**, rồi chọn một/nhiều app bằng checkbox hoặc **Chọn theo nhóm**. Hai chế độ này nhận cả app người dùng, app hệ thống có sẵn và app đã systemize; không cần Hybrid Mount để thực hiện. Đổi chế độ sẽ bỏ lựa chọn cũ để tránh áp dụng nhầm thao tác. Giới hạn 100 app/lần; SysLeaf không cho vô hiệu hoá/gỡ chính nó hoặc gói framework `android`.
+
+Trước mỗi thao tác, hộp thoại hiển thị tên, mã gói, biểu tượng và dấu nhận diện app hệ thống/module của toàn bộ app đã chọn. Cảnh báo nêu rõ gỡ/vô hiệu hoá ứng dụng hệ thống có thể khiến thiết bị hoạt động không đúng cách hoặc **bootloop**. Chỉ chạy khi chọn **Được, cứ làm đi!**; **Oh, chờ chút**, nút Back hoặc đóng hộp thoại sẽ huỷ.
+
+- **Vô hiệu hoá:** chạy `pm disable-user --user 0 <package>`, giữ dữ liệu của ứng dụng và đọc lại trạng thái disabled để xác nhận.
+- **Gỡ ứng dụng:** chạy `pm uninstall --user 0 <package>`, gỡ khỏi hồ sơ chủ thiết bị và xoá dữ liệu app trong hồ sơ này. Không xoá trực tiếp APK trên phân vùng hệ thống hoặc thư mục module. Gỡ ứng dụng khác với **Gỡ module**; module đang tồn tại vẫn được giữ.
+- Backend đọc lại PackageManager, kiểm tra toàn bộ lựa chọn trước khi thay đổi, giữ lock và xử lý từng app. Lỗi ở một app không ngăn xử lý app tiếp theo; kết quả báo riêng thành công/thất bại kèm chi tiết Android. Những app thất bại còn đủ điều kiện vẫn được chọn để xem lại. Thao tác này không có rollback tự động.
+- Sau lỗi hoặc timeout, danh sách vẫn được làm mới để phản ánh cả thay đổi đã áp dụng. Không cần khởi động lại để thực hiện disable/uninstall.
+
+Trong hồ sơ owner (**user 0**), có thể khôi phục qua ADB/root:
+
+```bash
+adb shell su -c 'pm enable --user 0 com.example.app'
+# Chỉ khi APK hệ thống/module còn được Android nhận diện:
+adb shell su -c 'pm install-existing --user 0 com.example.app'
+```
+
+Thay mã gói bằng app cần khôi phục. `install-existing` không khôi phục dữ liệu đã bị xoá. Với app người dùng đã gỡ và không còn APK được Android nhận diện, cần cài lại từ APK/cửa hàng. Xem [kiểm tra và khôi phục trên thiết bị](docs/DEVICE_TESTING.md).
+
 ## Có gì trong app
 
 - Ba tab **Trang chủ / Ứng dụng / Cài đặt**.
@@ -87,6 +108,8 @@ cargo ndk -t arm64-v8a clippy --release -- -D warnings
 
 Tests kiểm tra root gate, mất quyền root, chọn nhóm, hủy/xác nhận systemize, restart, ngôn ngữ, chủ đề đen và màn hình hẹp. Rust tests chạy shell giao dịch trong thư mục tạm, dùng APK/split/library giả để kiểm tra sao chép, bảo toàn dữ liệu và dọn trạng thái khi lỗi; không ghi vào phân vùng Android thật.
 
+Tests quản lý app kiểm tra hủy/xác nhận hai thao tác với nhiều app hệ thống/người dùng, danh sách được xác nhận không thay đổi theo selection, cảnh báo Anh/Việt, kết quả lỗi một phần, timeout và màn hình 320×640. Shell harness dùng PackageManager giả để kiểm tra `--user 0`, mã thoát lỗi, thông báo `Failure` dù exit 0, lệnh báo `Success` nhưng trạng thái không đổi, lỗi truy vấn trạng thái, preflight và lock. Không chạy disable/uninstall thật trên máy build.
+
 Ảnh trong `artifacts/screenshots` được render bằng widget Flutter thật với danh sách app giả **chỉ trong test**. Bản chạy thực tế không có demo mode hay cơ chế bỏ qua root.
 
 **Chưa kiểm thử mount/reboot trên thiết bị Magisk/KernelSU thật trong môi trường này.** Trước khi dùng hàng loạt, thử một app, khởi động lại và xác nhận trạng thái trong tab Ứng dụng. Nếu module vẫn ghi **Chưa được mount**, kiểm tra engine, quy tắc Hybrid Mount và log của trình quản lý root. Xem [quy trình kiểm tra thiết bị](docs/DEVICE_TESTING.md).
@@ -97,6 +120,7 @@ Tests kiểm tra root gate, mất quyền root, chọn nhóm, hủy/xác nhận 
 - `rust/src/android.rs`: Android JNI và đọc PackageManager.
 - `rust/src/root.rs`: thực thi `su` ngoài UI thread, timeout, stream script.
 - `rust/src/modules.rs`: kiểm tra selection, copy/checksum, module và rollback.
+- `rust/src/app_management.rs`: disable/uninstall nhiều app, xác minh trạng thái và kết quả từng app.
 - `test/`: kiểm tra widget/controller; mock chỉ dùng trong test.
 - [Kiến trúc](docs/ARCHITECTURE.md), [kiểm tra thiết bị](docs/DEVICE_TESTING.md).
 
